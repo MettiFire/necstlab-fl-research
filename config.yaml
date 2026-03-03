@@ -1,0 +1,83 @@
+# Configurazione Comune per tutti i Benchmark
+# NECSTLab - FL Benchmark Project
+
+# Dataset Configuration
+dataset:
+  name: "garmin_sleep_quality"
+  path: "./data/ready_for_flwr"
+  num_clients: 9
+  test_fraction: 0.2
+  features: 40  # Numero di feature engineered
+  target: "label"  # Sleep quality score (0-100)
+
+# Federated Learning Common Settings
+federated:
+  num_rounds: 10              # Numero di round FL
+  local_epochs: 5             # Epoch locali per client
+  fraction_fit: 1.0           # Frazione client per training (1.0 = tutti)
+  fraction_evaluate: 1.0      # Frazione client per evaluation
+
+# XGBoost Common Hyperparameters
+xgboost:
+  objective: "reg:squarederror"
+  max_depth: 6
+  learning_rate: 0.1
+  n_estimators: 100
+  subsample: 0.8
+  colsample_bytree: 0.8
+  random_state: 42
+
+# Benchmark Settings
+benchmark:
+  num_runs: 3                 # Numero di run per statistiche
+  metrics:
+    - "training_time"         # Tempo totale training (sec)
+    - "communication_time"    # Tempo comunicazione (sec)
+    - "aggregation_time"      # Tempo aggregazione server (sec)
+    - "mae"                   # Mean Absolute Error
+    - "rmse"                  # Root Mean Squared Error
+    - "convergence_rounds"    # Round per convergenza
+    - "bytes_sent"            # Bytes totali inviati
+    - "bytes_received"        # Bytes totali ricevuti
+  
+  timing:
+    profile: true             # Profiling dettagliato
+    log_interval: 1           # Log ogni N rounds
+
+# Output Settings
+output:
+  results_dir: "./results"
+  save_models: true
+  save_logs: true
+  save_plots: true
+  verbose: true
+
+# Hardware Configuration
+hardware:
+  use_gpu: false              # GPU disponibile?
+  num_cpus: 8                 # CPU cores da usare
+  memory_limit_gb: 16         # Limite memoria RAM
+
+# Flower-specific Settings
+flower:
+  bagging:
+    strategy: "FedXgbBagging"
+    aggregation: "mean"       # Aggregazione predizioni
+  
+  cyclic:
+    strategy: "FedXgbCyclic"
+    client_order: "sequential"  # Ordine client
+
+# NVIDIA FLARE-specific Settings
+nvidia_flare:
+  histogram_sharing: true     # Condividi istogrammi
+  histogram_bins: 256         # Numero di bins per istogramma
+  secure_aggregation: false   # Aggregazione sicura (più lenta)
+  compression: false          # Comprimi istogrammi
+  
+# Logging
+logging:
+  level: "INFO"               # DEBUG, INFO, WARNING, ERROR
+  console: true
+  file: true
+  file_path: "./results/benchmark.log"
