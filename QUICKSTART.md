@@ -88,7 +88,7 @@ ln -s "/Users/annamettifogo/Desktop/polimi/1° magistrale/csi/proj4/prova1/dtbag
 Reinstalla dipendenze:
 ```bash
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ### Flower simulation non parte

@@ -36,42 +36,32 @@ def run_flower_bagging_benchmark(config_path: str = "../../config.yaml"):
     # Performance monitor
     monitor = PerformanceMonitor()
     
-    # Prepara comando Flower simulation
-    base_dir = Path(__file__).parent
+    # Metodo: Usando CLI flwr con pyproject.toml config
+    base_dir = Path(__file__).parent.parent.parent  # root del progetto
     
+    # Usa config dal pyproject.toml (più semplice)
     cmd = [
-        "flwr-simulation",
-        "--server-app", f"{base_dir}/server:app",
-        "--client-app", f"{base_dir}/client:app",
-        "--num-supernodes", str(config['dataset']['num_clients']),
-        "--run-config",
-        f"train-method=bagging "
-        f"num-server-rounds={config['federated']['num_rounds']} "
-        f"local-epochs={config['federated']['local_epochs']} "
-        f"fraction-train={config['federated']['fraction_fit']} "
-        f"fraction-evaluate={config['federated']['fraction_evaluate']} "
-        f"test-fraction={config['dataset']['test_fraction']} "
-        f"objective={config['xgboost']['objective']} "
-        f"max-depth={config['xgboost']['max_depth']} "
-        f"learning-rate={config['xgboost']['learning_rate']} "
-        f"subsample={config['xgboost']['subsample']} "
-        f"colsample-bytree={config['xgboost']['colsample_bytree']}"
+        "flwr", "run", "."  # . = usa [tool.flwr.app] dal pyproject.toml
     ]
     
+    # Se vuoi override dei parametri:
+    # cmd += ["--run-config", f"num-server-rounds={config['federated']['num_rounds']}"]
+    
     print("🚀 Avvio Flower simulation...")
-    print(f"Command: {' '.join(cmd[:6])}...")
+    print(f"Command: flwr run . (from {base_dir})")
     print()
     
     # Esegui e monitora
     monitor.start_timer('total_time')
     
     try:
-        # Run subprocess
+        # Run subprocess dalla root del progetto
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            cwd=str(base_dir)  # Importante: esegui dalla root
         )
         
         total_time = monitor.stop_timer('total_time')

@@ -15,7 +15,9 @@ ENV/
 
 # Data (too large to commit)
 data/ready_for_flwr/
+data/ready_for_flwr
 data/*.csv
+data/x_test.csv
 *.csv
 !results/benchmark_summary.csv
 

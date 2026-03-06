@@ -21,7 +21,7 @@ source venv/bin/activate
 echo ""
 echo "📚 Installazione dipendenze..."
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install -e .
 
 # 3. Setup symlink dati
 echo ""
@@ -41,10 +41,10 @@ else
     echo "   ℹ️  Symlink x_test.csv già esistente"
 fi
 
-# 4. Test data loading
-echo ""
-echo "🧪 Test caricamento dati..."
-python utils.py
+# 4. Test data loading (usa: python test_data.py)
+# echo ""
+# echo "🧪 Test caricamento dati..."
+# python utils.py  # Rimosso: troppo lento, usa test_data.py invece
 
 # 5. Crea directory risultati
 mkdir -p results/plots
