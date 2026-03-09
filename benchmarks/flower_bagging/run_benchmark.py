@@ -2,7 +2,7 @@
 Run Flower Bagging Benchmark
 NECSTLab - Polimi LS2
 
-Esegue benchmark completo di Flower Bagging con profiling.
+Esegue benchmark completo di Flower Bagging
 """
 import subprocess
 import time
