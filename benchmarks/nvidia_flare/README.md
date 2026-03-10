@@ -1,52 +1,128 @@
-# NVIDIA FLARE Benchmark
+# NVIDIA FLARE XGBoost Benchmark
 
-## TODO: Da Implementare
+## Panoramica
 
-Questa directory conterrà l'implementazione del benchmark per **NVIDIA FLARE**.
+Implementazione di **NVIDIA FLARE** per Federated Learning con XGBoost per predizione della qualità del sonno.
 
-## Cosa è NVIDIA FLARE
-
-Framework enterprise per Federated Learning con supporto avanzato per:
-- Histogram-based XGBoost (SecureBoost)
-- Differential privacy
-- Secure aggregation
-- GPU acceleration
-
-## Architettura FLARE
+## Architettura
 
 ```
-Project/
-├── config/
-│   ├── config_fed_server.json    # Server configuration
-│   └── config_fed_client.json    # Client configuration
+nvidia_flare/
+├── app/
+│   ├── config/
+│   │   ├── config_fed_server.json    # Configurazione server
+│   │   ├── config_fed_client.json    # Configurazione client  
+│   │   └── meta.json                 # Metadata applicazione
+│   └── custom/                        # Moduli custom (copiati da ../custom/)
 ├── custom/
-│   ├── xgb_trainer.py            # Custom XGBoost trainer
-│   └── xgb_validator.py          # Custom validator
-└── run_benchmark.py              # Launch script
+│   ├── xgb_trainer.py                # Executor per training client
+│   └── xgb_aggregator.py             # Aggregatore server
+└── run_benchmark.py                  # Script di esecuzione
+
+workspace/                             # Creato durante esecuzione
+└── server/
+    └── simulate_job/
+        └── results/
+            ├── final_model.json       # Modello aggregato finale
+            └── timing_metrics.json    # Metriche temporali
 ```
 
-## Histogram Sharing
+## Differenze Chiave vs Flower
 
-**Differenza chiave vs Flower:**
+### NVIDIA FLARE
+- **Comunicazione**: Histogram-based (ogni albero)
+- **Aggregazione**: Weighted averaging o SecureBoost
+- **Paradigma**: Push histograms → Server builds tree
+- **Frequenza**: N comunicazioni per round (N = num_trees)
+- **Overhead**: Maggiore per singolo albero, ma più sicuro
 
-**Flower Bagging:**
-- Scambia: model weights (1x per round)
-- Grandezza: ~MB per client
-- Quando: Solo a fine training locale
+### Flower Bagging/Cyclic  
+- **Comunicazione**: Model weights (fine round)
+- **Aggregazione**: FedAvg (bagging) o Sequential (cyclic)
+- **Paradigma**: Train locally → Push weights
+- **Frequenza**: 1 comunicazione per round
+- **Overhead**: Minore, modelli possono essere grandi
 
-**NVIDIA FLARE:**
-- Scambia: gradient histograms (N volte per round, N = num trees)
-- Grandezza: ~MB × num_trees × num_features
-- Quando: Ad ogni tree construction (dentro ogni boosting iteration)
+## Esecuzione
 
-### Esempio Communication Pattern
+### Metodo 1: Script integrato
 
-```python
-# Flower Bagging (simplified)
-for round in rounds:
-    for client in clients:  # Parallel
-        model = train_locally(data)
-    global_model = aggregate(models)
+```bash
+cd /Users/annamettifogo/Desktop/polimi/necstlab/progetto_LS2/fl_benchmark
+source venv/bin/activate
+cd benchmarks/nvidia_flare
+python run_benchmark.py
+```
+
+### Metodo 2: Diretto con nvflare
+
+```bash
+# Setup
+cd benchmarks/nvidia_flare
+python -c "from run_benchmark import setup_app_structure; setup_app_structure()"
+
+# Esegui simulator
+nvflare simulator app \
+  -w workspace \
+  -n 9 \
+  -t 9
+```
+
+## Parametri Configurabili
+
+### Server (`config_fed_server.json`)
+- `num_rounds`: 10 - Numero di round FL
+- `min_clients`: 9 - Minimo client necessari
+
+### Client (`config_fed_client.json`)
+- `num_boost_round`: 5 - Alberi per round locale
+- `max_depth`: 6 - Profondità alberi
+- `learning_rate`: 0.1 - Learning rate XGBoost
+- `tree_method`: "hist" - Histogram-based
+
+## Risultati
+
+Dopo l'esecuzione, i risultati saranno in:
+```
+workspace/server/simulate_job/results/
+├── final_model.json        # Modello XGBoost finale
+├── timing_metrics.json     # Tempi esecuzione
+└── model_round_*.json      # Modelli intermedi
+```
+
+## Monitoring
+
+Durante l'esecuzione vedrai:
+- ⏳ Caricamento dati per ogni client
+- 🧠 Training locale per round
+- 🔄 Aggregazione modelli sul server
+- ✅ Metriche MAE e tempi
+
+## Confronto con Altri Approcci
+
+| Metrica | NVIDIA FLARE | Flower Bagging | Flower Cyclic |
+|---------|--------------|----------------|---------------|
+| Comunicazioni/round | N (per albero) | 1 | 1 |
+| Privacy | Alta (histograms) | Media | Media |
+| Overhead | Alto | Medio | Basso |
+| Complessità setup | Alta | Media | Media |
+| GPU support | Sì | No | No |
+
+## Note Tecniche
+
+- **tree_method: hist** è fondamentale per histogram-based boosting
+- NVIDIA FLARE usa **gRPC** per comunicazione (vs Ray in Flower)  
+- Supporta **Differential Privacy** e **Secure Aggregation** (non implementati qui)
+- Più adatto per **scenari enterprise** con requisiti di sicurezza
+
+## Troubleshooting
+
+**Import Error**:
+```bash
+pip install nvflare==2.7.1
+```
+
+**PYTHONPATH issues
 
 # NVIDIA FLARE Histogram-based (simplified)
 for round in rounds:
