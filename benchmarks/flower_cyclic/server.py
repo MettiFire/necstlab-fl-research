@@ -7,6 +7,8 @@ import xgboost as xgb
 from pathlib import Path
 import sys
 import warnings
+import time
+import json
 
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
@@ -16,6 +18,10 @@ from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import FedXgbCyclic
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+# Messaggio di loading iniziale
+print("⏳ Caricamento Flower Cyclic Server in corso...")
+print("   Inizializzazione componenti... (può richiedere qualche secondo)")
 
 app = ServerApp()
 
@@ -42,6 +48,15 @@ def main(grid: Grid, context: Context) -> None:
     print(f"   Fraction train: {fraction_train}")
     print(f"   XGBoost params: {params}")
     
+    # Tracking temporale
+    timing_metrics = {
+        "total_time": 0,
+        "rounds": [],
+        "approach": "cyclic",
+        "num_rounds": num_rounds
+    }
+    start_total = time.time()
+    
     # Modello iniziale vuoto
     global_model = b""
     arrays = ArrayRecord([np.frombuffer(global_model, dtype=np.uint8)])
@@ -54,11 +69,13 @@ def main(grid: Grid, context: Context) -> None:
     
     # Esegui FL
     print(f"\n🚀 Starting Federated Learning (Cyclic)...")
+    start_fl = time.time()
     result = strategy.start(
         grid=grid,
         initial_arrays=arrays,
         num_rounds=num_rounds,
     )
+    fl_time = time.time() - start_fl
     
     # Salva modello finale
     bst = xgb.Booster(params=params)
@@ -71,5 +88,17 @@ def main(grid: Grid, context: Context) -> None:
     model_path = output_dir / "final_model.json"
     bst.save_model(str(model_path))
     
+    # Salva metriche temporali
+    timing_metrics["total_time"] = time.time() - start_total
+    timing_metrics["fl_time"] = fl_time
+    timing_metrics["avg_round_time"] = fl_time / num_rounds
+    
+    timing_path = output_dir / "timing_metrics.json"
+    with open(timing_path, 'w') as f:
+        json.dump(timing_metrics, f, indent=2)
+    
     print(f"\n✅ Training completato!")
     print(f"   Modello salvato: {model_path}")
+    print(f"   ⏱️  Tempo totale: {timing_metrics['total_time']:.2f}s")
+    print(f"   ⏱️  Tempo FL: {fl_time:.2f}s")
+    print(f"   ⏱️  Tempo medio/round: {timing_metrics['avg_round_time']:.2f}s")

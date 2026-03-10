@@ -7,6 +7,7 @@ import numpy as np
 import xgboost as xgb
 from pathlib import Path
 import sys
+import time
 
 # Aggiungi root al path
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -45,6 +46,7 @@ def _local_boost(bst_input, num_local_round, train_dmatrix, train_method):
 @app.train()
 def train(msg: Message, context: Context) -> Message:
     """Training locale del client"""
+    start_total = time.time()
     
     # Configurazione
     partition_id = context.node_config["partition-id"]
@@ -63,14 +65,18 @@ def train(msg: Message, context: Context) -> Message:
     }
     
     # Carica dati
+    start_load = time.time()
     loader = DataLoader()
     train_dmatrix, _, num_train, _ = loader.load_client_data(
         client_id=partition_id,
         test_fraction=test_fraction
     )
+    load_time = time.time() - start_load
     
     global_round = msg.content["config"]["server-round"]
     
+    # Training
+    start_train = time.time()
     if global_round == 1:
         # Primo round: training da zero
         bst = xgb.train(
@@ -80,18 +86,31 @@ def train(msg: Message, context: Context) -> Message:
         )
     else:
         # Round successivi: continua dal modello globale
+        start_deserialize = time.time()
         bst = xgb.Booster(params=params)
         global_model = bytearray(msg.content["arrays"]["0"].numpy().tobytes())
         bst.load_model(global_model)
+        deserialize_time = time.time() - start_deserialize
         bst = _local_boost(bst, num_local_round, train_dmatrix, train_method)
+    train_time = time.time() - start_train
     
     # Serializza modello locale
+    start_serialize = time.time()
     local_model = bst.save_raw("json")
     model_np = np.frombuffer(local_model, dtype=np.uint8)
+    serialize_time = time.time() - start_serialize
+    
+    total_time = time.time() - start_total
     
     # Prepara risposta
     model_record = ArrayRecord([model_np])
-    metrics = {"num-examples": num_train}
+    metrics = {
+        "num-examples": num_train,
+        "train_time": train_time,
+        "load_time": load_time,
+        "serialize_time": serialize_time,
+        "total_time": total_time
+    }
     metric_record = MetricRecord(metrics)
     content = RecordDict({"arrays": model_record, "metrics": metric_record})
     

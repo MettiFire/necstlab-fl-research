@@ -2,7 +2,7 @@
 Run Flower Cyclic Benchmark
 NECSTLab - Polimi LS2
 
-Esegue benchmark completo di Flower Cyclic con profiling.
+Esegue benchmark completo di Flower Cyclic.
 """
 import subprocess
 import time

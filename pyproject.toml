@@ -60,11 +60,11 @@ packages = ["benchmarks"]
 publisher = "necstlab-polimi"
 
 [tool.flwr.app.components]
-serverapp = "benchmarks.flower_cyclic.server:app"
-clientapp = "benchmarks.flower_cyclic.client:app"
+serverapp = "benchmarks.flower_bagging.server:app"
+clientapp = "benchmarks.flower_bagging.client:app"
 
 [tool.flwr.app.config]
-train-method = "cyclic"
+train-method = "bagging"
 num-server-rounds = 10
 fraction-train = 1.0
 fraction-evaluate = 1.0
