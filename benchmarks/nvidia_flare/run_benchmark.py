@@ -31,11 +31,23 @@ class SleepQualityDataLoader(XGBDataLoader):
         self._client_id = None
         self._data_loader = None
         
-    def initialize(self, fl_ctx):
-        """Chiamato da NVFLARE dopo __init__ per configurare il DataLoader"""
-        # Estrai client ID dal nome del site (es. "site-1" → 0)
-        site_name = fl_ctx.get_identity_name()
-        self._client_id = int(site_name.split("-")[1]) - 1
+    def initialize(self, fl_ctx=None, client_id=None, **kwargs):
+        """Compatibile con diverse firme NVFLARE (fl_ctx o client_id)."""
+        if client_id is not None:
+            # NVFLARE puo' passare client_id come int o stringa tipo "site-4"
+            if isinstance(client_id, str):
+                if client_id.startswith("site-"):
+                    self._client_id = int(client_id.split("-")[1]) - 1
+                else:
+                    self._client_id = int(client_id)
+            else:
+                self._client_id = int(client_id)
+        elif fl_ctx is not None:
+            # Estrai client ID dal nome del site (es. "site-1" → 0)
+            site_name = fl_ctx.get_identity_name()
+            self._client_id = int(site_name.split("-")[1]) - 1
+        else:
+            raise ValueError("SleepQualityDataLoader.initialize richiede fl_ctx o client_id")
         
         # Se data_dir non è stato fornito, usa il percorso di default
         if self._data_dir is None:
@@ -54,10 +66,7 @@ class SleepQualityDataLoader(XGBDataLoader):
         
         print(f"  ✅ Site-{self._client_id + 1}: {num_train} train, {num_val} val")
         
-        return {
-            "train": train_data,
-            "valid": valid_data,
-        }
+        return train_data, valid_data
 
 
 def main():
