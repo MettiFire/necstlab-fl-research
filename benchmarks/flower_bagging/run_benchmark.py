@@ -3,6 +3,12 @@ Run Flower Bagging Benchmark
 NECSTLab - Polimi LS2
 
 Esegue benchmark completo di Flower Bagging
+
+Questo script e' il punto di ingresso operativo per i test:
+- legge la configurazione comune
+- avvia Flower via CLI
+- misura tempi/risorse
+- salva i risultati in formato analizzabile
 """
 import subprocess
 import time
@@ -11,15 +17,24 @@ from pathlib import Path
 import sys
 import pandas as pd
 
+# Inserisco la root del progetto nel path per importare i moduli condivisi
+# anche quando lo script viene lanciato da sottocartelle diverse.
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from utils import PerformanceMonitor, save_results
 
 
 def run_flower_bagging_benchmark(config_path: str = "../../config.yaml"):
-    """Esegue benchmark Flower Bagging"""
+    """
+    Esegue un benchmark completo Flower Bagging e salva un record risultati.
+
+    Perche' tengo tutto in una funzione:
+    - posso riusarla in script/automation
+    - centralizzo gestione errori e logging
+    """
     
-    # Carica configurazione
+    # Leggo la configurazione una sola volta e la uso sia per stampa
+    # che per compilare il report finale del run.
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     
@@ -33,13 +48,16 @@ def run_flower_bagging_benchmark(config_path: str = "../../config.yaml"):
     print(f"  - XGBoost max_depth: {config['xgboost']['max_depth']}")
     print()
     
-    # Performance monitor
+    # Istanzio il monitor custom per raccogliere tempi e risorse
+    # in modo uniforme rispetto agli altri benchmark.
     monitor = PerformanceMonitor()
     
-    # Metodo: Usando CLI flwr con pyproject.toml config
+    # Base directory del progetto: qui sono presenti pyproject.toml,
+    # configurazione Flower e import path coerenti.
     base_dir = Path(__file__).parent.parent.parent  # root del progetto
     
-    # Usa config dal pyproject.toml (più semplice)
+    # Scelgo di avviare Flower tramite CLI (`flwr run .`) cosi' uso
+    # direttamente la definizione app nel pyproject.toml.
     cmd = [
         "flwr", "run", "."  # . = usa [tool.flwr.app] dal pyproject.toml
     ]
@@ -51,11 +69,14 @@ def run_flower_bagging_benchmark(config_path: str = "../../config.yaml"):
     print(f"Command: flwr run . (from {base_dir})")
     print()
     
-    # Esegui e monitora
+    # Avvio il timer end-to-end prima del subprocess, cosi' includo
+    # startup framework, esecuzione round e teardown finale.
     monitor.start_timer('total_time')
     
     try:
-        # Run subprocess dalla root del progetto
+        # Eseguo il benchmark come processo separato:
+        # - `check=True` per intercettare errori reali di esecuzione
+        # - `cwd=base_dir` per garantire che Flower risolva correttamente app/config
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -64,6 +85,7 @@ def run_flower_bagging_benchmark(config_path: str = "../../config.yaml"):
             cwd=str(base_dir)  # Importante: esegui dalla root
         )
         
+        # Chiudo timer e raccolgo snapshot risorse a fine run.
         total_time = monitor.stop_timer('total_time')
         monitor.record_resource_usage()
         
@@ -72,7 +94,9 @@ def run_flower_bagging_benchmark(config_path: str = "../../config.yaml"):
         print("=" * 70)
         print(f"\n⏱️  Tempo totale: {total_time:.2f} secondi")
         
-        # Parse output per estrarre metriche
+        # Estraggo lo stdout riga per riga per eventuale parsing metriche.
+        # Questo blocco e' volutamente semplice: preferisco avere output grezzo
+        # stampato ora e migliorare parser in step successivo.
         output_lines = result.stdout.split('\n')
         
         # Cerca MAE finale (da adattare al formato output Flower)
@@ -82,7 +106,7 @@ def run_flower_bagging_benchmark(config_path: str = "../../config.yaml"):
                 # Parsing semplice, da migliorare
                 print(f"   {line.strip()}")
         
-        # Summary risultati
+        # Creo il record minimale comune a tutti i benchmark.
         results = {
             'approach': 'flower_bagging',
             'total_time_sec': total_time,
@@ -92,10 +116,11 @@ def run_flower_bagging_benchmark(config_path: str = "../../config.yaml"):
             'final_mae': final_mae,
         }
         
-        # Aggiungi statistiche monitor
+        # Aggiungo metriche monitor (CPU/memoria/tempi aggregati) al record finale.
         results.update(monitor.get_summary())
         
-        # Salva risultati
+        # Salvo in cartella results condivisa, cosi' il notebook di analisi
+        # trova automaticamente i file senza path speciali.
         results_dir = Path(__file__).parent.parent.parent / "results"
         save_results(results, str(results_dir), "flower_bagging")
         
@@ -104,10 +129,12 @@ def run_flower_bagging_benchmark(config_path: str = "../../config.yaml"):
         return results
         
     except subprocess.CalledProcessError as e:
+        # Errore runtime del benchmark (config, dipendenze, crash Flower, ...).
         print(f"\n❌ Errore durante esecuzione:")
         print(e.stderr)
         return None
     except KeyboardInterrupt:
+        # Gestisco Ctrl+C in modo pulito senza stacktrace rumoroso.
         print(f"\n⚠️ Benchmark interrotto dall'utente")
         return None
 
@@ -115,7 +142,8 @@ def run_flower_bagging_benchmark(config_path: str = "../../config.yaml"):
 if __name__ == "__main__":
     print("\n🧪 Flower Bagging Benchmark - NECSTLab\n")
     
-    # Verifica setup
+    # Controllo preliminare dati: preferisco fallire subito con messaggio chiaro
+    # invece di far partire Flower e scoprire dopo che i CSV non esistono.
     data_dir = Path(__file__).parent.parent.parent / "data" / "ready_for_flwr"
     
     if not data_dir.exists():
@@ -126,7 +154,7 @@ if __name__ == "__main__":
         print('   ln -s /Users/annamettifogo/Desktop/polimi/1°\\ magistrale/csi/proj4/prova1/dtbagging/ready_for_flwr ready_for_flwr')
         sys.exit(1)
     
-    # Run benchmark
+    # Avvio benchmark completo.
     results = run_flower_bagging_benchmark()
     
     if results:
