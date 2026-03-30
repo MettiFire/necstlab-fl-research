@@ -94,19 +94,13 @@ fl_benchmark/
 
 ## 🚀 Quick Start
 
-### 1. Setup Ambiente
-```bash
-cd "/Users/annamettifogo/Desktop/polimi/necstlab/progetto LS2/fl_benchmark"
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
+- connetti alla vpn
+- ssh 10.79.248.2
+- pw: necstvmcpu
+- naviga con cd nella cartella fl_benchmark
+- attiva venv con source venv/bin/activate
 
-### 2. Prepara Dataset
-```bash
-# Crea symlink ai dati Garmin esistenti
-ln -s /Users/annamettifogo/Desktop/polimi/1°\ magistrale/csi/proj4/prova1/dtbagging/ready_for_flwr data/ready_for_flwr
-```
+
 
 ### 3. Run Benchmarks
 ```bash
@@ -119,6 +113,47 @@ python benchmarks/flower_cyclic/run_benchmark.py
 # NVIDIA FLARE
 python benchmarks/nvidia_flare/run_benchmark.py
 ```
+
+---
+
+## 🖥️ Accesso alla Macchina del Lab (SSH)
+
+Per eseguire i benchmark o avviare server/client sulla macchina del laboratorio:
+
+1. **Connettiti via SSH**
+
+```bash
+ssh <tuo_username>@<ip_macchina_lab>
+# oppure, se serve una porta diversa:
+ssh -p <porta> <tuo_username>@<ip_macchina_lab>
+```
+
+2. **Naviga nella cartella del progetto**
+
+```bash
+cd /percorso/alla/cartella/fl_benchmark
+```
+
+3. **(Opzionale) Copia file dal tuo PC al lab**
+
+```bash
+# Da locale a lab:
+scp -r /percorso/locale/fl_benchmark <tuo_username>@<ip_macchina_lab>:/percorso/destinazione/
+# Da lab a locale:
+scp -r <tuo_username>@<ip_macchina_lab>:/percorso/remoto/fl_benchmark /percorso/locale/
+```
+
+4. **Trova l'IP della macchina lab**
+
+```bash
+hostname -I
+# oppure
+ip addr show
+```
+
+5. **Avvia server/client come da istruzioni PoC**
+
+---
 
 ### 4. Analizza Risultati
 ```bash
