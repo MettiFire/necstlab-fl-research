@@ -24,7 +24,7 @@ from flwr.clientapp import ClientApp # classe base per implementare il client
 from flwr.common.config import unflatten_dict # per ricostruire i parametri XGBoost dalla config piatta di Flower
 from sklearn.metrics import mean_absolute_error
 
-from utils import DataLoader
+from utils import DataLoader, append_client_round_metric
 
 warnings.filterwarnings("ignore", category=UserWarning) # XGBoost a volte emette warning su feature non usate, ecc. che possiamo ignorare.
 warnings.filterwarnings("ignore", category=DeprecationWarning) # alcune funzioni di XGBoost sono deprecate ma ancora usate internamente, quindi silenzio anche questi warning.
@@ -98,7 +98,9 @@ def train(msg: Message, context: Context) -> Message:
     )
     load_time = time.time() - start_load
     
-    global_round = msg.content["config"]["server-round"] 
+    global_round = int(msg.content["config"]["server-round"])
+    incoming_model_bytes = int(msg.content["arrays"]["0"].numpy().nbytes)
+    deserialize_time = 0.0
     
     # leggo il numero di round server corrente per capire se partire da zero
     # o dal modello globale aggregato al round precedente.
@@ -127,6 +129,7 @@ def train(msg: Message, context: Context) -> Message:
     start_serialize = time.time()
     local_model = bst.save_raw("json")
     model_np = np.frombuffer(local_model, dtype=np.uint8)
+    outgoing_model_bytes = int(model_np.nbytes)
     serialize_time = time.time() - start_serialize
     
     total_time = time.time() - start_total
@@ -138,11 +141,22 @@ def train(msg: Message, context: Context) -> Message:
         "num-examples": num_train,
         "train_time": train_time,
         "load_time": load_time,
+        "deserialize_time": deserialize_time,
         "serialize_time": serialize_time,
+        "communication_time_proxy": deserialize_time + serialize_time,
+        "bytes_received": incoming_model_bytes,
+        "bytes_sent": outgoing_model_bytes,
         "total_time": total_time
     }
     metric_record = MetricRecord(metrics)
     content = RecordDict({"arrays": model_record, "metrics": metric_record})
+
+    append_client_round_metric(
+        approach="flower_bagging",
+        client_id=partition_id,
+        round_number=global_round,
+        metric_row=metrics,
+    )
     
 
     return Message(content=content, reply_to=msg)

@@ -95,10 +95,10 @@ fl_benchmark/
 ## 🚀 Quick Start
 
 - connetti alla vpn
-- ssh 10.79.248.2
+- ``` ssh annamettifogo@10.79.6.127 ```
 - pw: necstvmcpu
 - naviga con cd nella cartella fl_benchmark
-- attiva venv con source venv/bin/activate
+- attiva venv con ```source venv/bin/activate```
 
 
 

@@ -10,6 +10,7 @@ from typing import Tuple, Optional
 import time
 import psutil
 import os
+import json
 
 
 class DataLoader:
@@ -202,6 +203,35 @@ def save_results(
     
     print(f"✅ Risultati salvati: {output_file}")
     return output_file
+
+
+def append_client_round_metric(
+    approach: str,
+    client_id: int,
+    round_number: int,
+    metric_row: dict,
+    output_dir: str = "./results/structured_metrics",
+):
+    """Append di una metrica round-level per client in formato JSONL.
+
+    Scrive una riga per round in un file dedicato al singolo client, evitando
+    conflitti di scrittura quando i client sono in parallelo.
+    """
+
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    payload = {
+        "timestamp": pd.Timestamp.now(tz="UTC").isoformat(),
+        "approach": approach,
+        "client_id": int(client_id),
+        "round": int(round_number),
+    }
+    payload.update(metric_row)
+
+    output_file = out_dir / f"{approach}_client_{client_id}.jsonl"
+    with output_file.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(payload) + "\n")
 
 
 if __name__ == "__main__":
