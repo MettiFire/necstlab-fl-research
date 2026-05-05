@@ -1,51 +1,80 @@
 # NVIDIA FLARE PoC
 
-Questa cartella contiene la versione "proof of concept" (PoC) del benchmark NVIDIA FLARE, con workspace locale dentro il repository per renderla visibile e gestibile da VS Code.
+Questa cartella contiene il flusso PoC NVIDIA FLARE per il benchmark LS2.
 
-Il punto di ingresso è [run_benchmark.py](run_benchmark.py).
+Punti di ingresso:
+- [run_benchmark.py](run_benchmark.py): prepara/avvia/ferma/pulisce il POC
+- [metrics_pipeline.py](metrics_pipeline.py): normalizza metriche NVFlare e crea CSV comparabili con Flower
 
-## Cosa fa il runner
+## Workflow end-to-end
 
-- legge la configurazione comune da [config.yaml](../../config.yaml)
-- prepara la workspace NVFlare dentro `nvflare_poc_workspace`
-- esegue `nvflare config -pw ...`, `nvflare poc prepare` e `nvflare poc prepare-jobs-dir`
-- salva un manifest con i parametri della run in `results/nvidia_flare_poc_manifest.json`
-- stampa i comandi corretti per `start`, `stop` e `clean`
-
-## Uso
+1) Attiva ambiente e prepara workspace
 
 ```bash
 source venv/bin/activate
-python benchmarks/nvidia_flare_poc/run_benchmark.py
+python benchmarks/nvidia_flare_poc/run_benchmark.py benchmark
 ```
 
-Comandi opzionali:
+Questo step:
+- usa `results/nvflare_poc_workspace` come workspace POC locale
+- esegue `nvflare config -pw ...`, `nvflare poc prepare -n 9`, `nvflare poc prepare-jobs-dir`
+- salva manifest in `results/nvidia_flare_poc_manifest.json`
+- stampa `run_id` da riusare per le metriche
+
+2) Avvia servizi POC
 
 ```bash
-python benchmarks/nvidia_flare_poc/run_benchmark.py prepare
 python benchmarks/nvidia_flare_poc/run_benchmark.py start
+```
+
+Alternativa equivalente:
+
+```bash
+nvflare poc start
+```
+
+3) Sottometti il job NVFlare
+
+La cartella jobs locale e':
+
+```bash
+benchmarks/nvidia_flare_poc/jobs
+```
+
+Con CLI NVFlare puoi usare, ad esempio:
+
+```bash
+nvflare job submit -j benchmarks/nvidia_flare_poc/jobs/<job_dir>
+```
+
+4) Ferma e pulisci (a fine run)
+
+```bash
 python benchmarks/nvidia_flare_poc/run_benchmark.py stop
 python benchmarks/nvidia_flare_poc/run_benchmark.py clean
 ```
 
-## Flusso NVFlare POC
+## Pipeline metriche comparabile con Flower
 
-Il runner usa questo flusso:
-
-```bash
-nvflare config -pw nvflare_poc_workspace
-nvflare poc prepare -n 9
-nvflare poc prepare-jobs-dir -j benchmarks/nvidia_flare_poc/jobs
-nvflare poc start
-```
-
-In questa versione della CLI, `nvflare poc start` avvia il workspace POC locale. Se vuoi fermare o pulire:
+Dopo il run NVFlare, estrai e aggrega metriche con lo stesso schema Flower (`bytes_sent`, `bytes_received`, `train_time`, serialize/deserialize):
 
 ```bash
-nvflare poc stop
-nvflare poc clean
+python benchmarks/nvidia_flare_poc/metrics_pipeline.py all \
+	--run-id <run_id_stampato_dal_runner> \
+	--source-dir results/nvflare_poc_workspace \
+	--approach nvidia_flare_poc \
+	--site-one-indexed
 ```
 
-## Nota sulla workspace
+Output principali:
+- `results/structured_metrics/runs/<run_id>/nvidia_flare_poc_client_<id>.jsonl`
+- `results/structured_metrics/summaries/communication_round_summary_nvidia_flare_poc_<run_id>.csv`
+- `results/structured_metrics/summaries/communication_approach_summary_nvidia_flare_poc_<run_id>.csv`
+- `results/structured_metrics/summaries/communication_approach_summary_with_nvflare_<run_id>.csv` (merge con CSV Flower se presente)
 
-La workspace viene creata nel progetto, non in `/tmp`, così puoi vederla in VS Code e tenere tutto sotto controllo dentro `fl_benchmark`.
+## Allineamento metodologico con Flower
+
+Per confronto equo Flower vs NVFlare, mantieni fissi:
+- semantica round
+- numero client attivi per round
+- definizione metriche comunicazione (bytes sent/received, serialize/deserialize, train time)

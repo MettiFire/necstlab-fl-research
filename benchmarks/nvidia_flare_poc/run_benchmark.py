@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -28,9 +29,16 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 RESULTS_DIR = PROJECT_ROOT / "results"
-DEFAULT_WORKSPACE = PROJECT_ROOT / "nvflare_poc_workspace"
+STRUCTURED_METRICS_DIR = RESULTS_DIR / "structured_metrics"
+DEFAULT_WORKSPACE = RESULTS_DIR / "nvflare_poc_workspace"
 DEFAULT_JOBS_DIR = Path(__file__).resolve().parent / "jobs"
 DEFAULT_MANIFEST_PATH = RESULTS_DIR / "nvidia_flare_poc_manifest.json"
+
+
+def make_run_id() -> str:
+    """Generate a sortable run id with UTC timestamp precision."""
+
+    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
 
 
 def load_project_config(config_path: Path = CONFIG_PATH) -> dict:
@@ -133,7 +141,14 @@ def clean_poc() -> None:
     run_command([resolve_nvflare_cli(), "poc", "clean"])
 
 
-def write_manifest(config: dict, workspace: Path, jobs_dir: Path, elapsed: float, manifest_path: Path) -> Path:
+def write_manifest(
+    config: dict,
+    workspace: Path,
+    jobs_dir: Path,
+    elapsed: float,
+    manifest_path: Path,
+    run_id: str,
+) -> Path:
     """Write a small JSON manifest describing the prepared run."""
 
     dataset = config.get("dataset", {})
@@ -142,10 +157,13 @@ def write_manifest(config: dict, workspace: Path, jobs_dir: Path, elapsed: float
     hardware = config.get("hardware", {})
 
     manifest = {
+        "run_id": str(run_id),
         "framework": "nvidia_flare",
         "mode": "poc",
         "workspace": str(workspace),
         "jobs_dir": str(jobs_dir),
+        "metrics_output_dir": str(STRUCTURED_METRICS_DIR / "runs" / run_id),
+        "summaries_output_dir": str(STRUCTURED_METRICS_DIR / "summaries"),
         "prepared_in_seconds": elapsed,
         "dataset": {
             "name": dataset.get("name", "garmin_sleep_quality"),
@@ -191,7 +209,7 @@ def print_launch_commands(num_clients: int) -> None:
     print()
 
 
-def run_benchmark(workspace: Path, jobs_dir: Path, manifest_path: Path, config: dict) -> Path:
+def run_benchmark(workspace: Path, jobs_dir: Path, manifest_path: Path, config: dict, run_id: str) -> Path:
     """Prepare the NVFlare POC workspace and save the manifest."""
 
     num_clients = int(config.get("dataset", {}).get("num_clients", 9))
@@ -203,13 +221,16 @@ def run_benchmark(workspace: Path, jobs_dir: Path, manifest_path: Path, config: 
     prepare_workspace(workspace, jobs_dir, num_clients)
     elapsed = time.time() - start_total
 
-    manifest = write_manifest(config, workspace, jobs_dir, elapsed, manifest_path)
+    manifest = write_manifest(config, workspace, jobs_dir, elapsed, manifest_path, run_id)
 
     print("\n" + "=" * 70)
     print("POC PREPARATO")
     print("=" * 70)
+    print(f"Run id: {run_id}")
     print(f"Tempo preparazione: {elapsed:.2f}s")
     print(f"Manifest: {manifest}")
+    print(f"Metrics output dir: {STRUCTURED_METRICS_DIR / 'runs' / run_id}")
+    print(f"Summaries dir: {STRUCTURED_METRICS_DIR / 'summaries'}")
     print()
     print_launch_commands(num_clients)
 
@@ -261,17 +282,24 @@ def main() -> int:
         default=None,
         help="ID GPU da passare a nvflare poc start",
     )
+    parser.add_argument(
+        "--run-id",
+        type=str,
+        default=None,
+        help="Run id esplicito. Se omesso viene generato automaticamente.",
+    )
 
     args = parser.parse_args()
+    run_id = args.run_id or make_run_id()
 
     try:
         config = load_project_config()
         if args.command == "benchmark":
-            run_benchmark(args.workspace, args.jobs_dir, args.manifest, config)
+            run_benchmark(args.workspace, args.jobs_dir, args.manifest, config, run_id)
         elif args.command == "prepare":
             ensure_directories(args.workspace)
             prepare_workspace(args.workspace, args.jobs_dir, int(config.get("dataset", {}).get("num_clients", 9)))
-            write_manifest(config, args.workspace, args.jobs_dir, 0.0, args.manifest)
+            write_manifest(config, args.workspace, args.jobs_dir, 0.0, args.manifest, run_id)
         elif args.command == "start":
             start_poc(args.service, args.exclude, args.gpu)
         elif args.command == "stop":

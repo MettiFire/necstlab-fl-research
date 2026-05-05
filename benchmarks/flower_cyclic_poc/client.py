@@ -1,32 +1,27 @@
 """
-Flower Cyclic Benchmark - Client
+Flower Cyclic Benchmark - Client (PoC legacy-compatible)
 NECSTLab - Polimi LS2
 
-Modalità PoC: avvio client come processo separato.
-
-COME USARE SU MACCHINA DEL LAB:
-1. Assicurati che il server sia già avviato sulla macchina del lab:
-    python server.py --server_address=0.0.0.0:8080 --num_rounds=10
-2. Su ogni macchina client (anche la stessa del server), lancia:
-    python client.py --server_address=IP_DEL_SERVER:8080 --client_id=N
-    (sostituisci IP_DEL_SERVER con l'IP della macchina server, N con l'ID del client)
-3. Puoi avviare più client in parallelo, anche con uno script.
-4. Verifica che la porta 8080 sia raggiungibile dal client verso il server.
+Client Flower compatibile con API legacy (`start_client` + `NumPyClient`) e
+con logging round-level per tempi/bytes in results/structured_metrics.
 """
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import tempfile
+import time
 import warnings
+from pathlib import Path
+
+import flwr as fl
 import numpy as np
 import xgboost as xgb
-from pathlib import Path
-import sys
-import time
 
-# Aggiungi root al path
 sys.path.append(str(Path(__file__).parent.parent.parent))
-
-from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
-from flwr.clientapp import ClientApp
-from flwr.common.config import unflatten_dict
-from sklearn.metrics import mean_absolute_error
 
 from utils import DataLoader, append_client_round_metric
 
@@ -34,172 +29,245 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
-import argparse
-from flwr.client import start_client
+def _serialize_booster_json(bst: xgb.Booster) -> bytes:
+    """Serializza il booster in JSON UTF-8 compatibile con strategie FedXgb."""
+    try:
+        raw = bst.save_raw(raw_format="json")
+        json.loads(bytes(raw).decode("utf-8"))
+        return bytes(raw)
+    except Exception:
+        # Fallback robusto cross-version XGBoost: salva/riapri JSON da file.
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+                tmp_path = tmp.name
+            bst.save_model(tmp_path)
+            with open(tmp_path, "rb") as f:
+                raw = f.read()
+            json.loads(raw.decode("utf-8"))
+            return raw
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.remove(tmp_path)
 
-app = ClientApp()
 
-
-def _local_boost(bst_input, num_local_round, train_dmatrix, train_method):
-    """Boosting locale per il client"""
-    for i in range(num_local_round):
+def _local_boost(
+    bst_input: xgb.Booster,
+    num_local_round: int,
+    train_dmatrix: xgb.DMatrix,
+    train_method: str,
+) -> tuple[xgb.Booster, float, float]:
+    """Esegue boosting locale e ritorna modello, tempo update e tempo slicing."""
+    start_update = time.perf_counter()
+    for _ in range(num_local_round):
         bst_input.update(train_dmatrix, bst_input.num_boosted_rounds())
+    update_time = time.perf_counter() - start_update
+
+    # qui non ci entra mai, ma in caso di bagging avremmo dovuto fare slicing per restituire solo i nuovi booster
+    if train_method == "bagging":
+        start_slice = time.perf_counter()
+        # ✅ FIX: Ritorna il booster intero, NON fare slicing
+        sliced = bst_input  
+        slice_time = time.perf_counter() - start_slice
+        return (sliced, update_time, slice_time)
     
-    if train_method == "bagging": 
-        # Per bagging: ritorna solo gli ultimi alberi addestrati
-        bst = bst_input[
-            bst_input.num_boosted_rounds() - num_local_round :  
-            bst_input.num_boosted_rounds()
-        ]
-    else: 
-        # Per cyclic: ritorna tutto il modello
-        bst = bst_input
-    
-    return bst
+    return bst_input, update_time, 0.0
 
 
-@app.train()
-def train(msg: Message, context: Context) -> Message:
-    """Training locale del client"""
-    start_total = time.time()
-    
-    # Configurazione
-    partition_id = context.node_config["partition-id"]
-    num_local_round = context.run_config["local-epochs"]
-    train_method = context.run_config.get("train-method", "cyclic")
-    test_fraction = context.run_config.get("test-fraction", 0.2)
-    
-    # Parametri XGBoost
-    cfg = unflatten_dict(context.run_config)
-    params = {
-        "objective": cfg.get("objective", "reg:squarederror"),
-        "max_depth": cfg.get("max-depth", 6),
-        "learning_rate": cfg.get("learning-rate", 0.1),
-        "subsample": cfg.get("subsample", 0.8),
-        "colsample_bytree": cfg.get("colsample-bytree", 0.8),
-    }
-    
-    # Carica dati
-    start_load = time.time()
-    loader = DataLoader()
-    train_dmatrix, _, num_train, _ = loader.load_client_data(
-        client_id=partition_id,
-        test_fraction=test_fraction
-    )
-    load_time = time.time() - start_load
-    
-    global_round = int(msg.content["config"]["server-round"])
-    incoming_model_bytes = int(msg.content["arrays"]["0"].numpy().nbytes)
-    deserialize_time = 0.0
-    
-    # Training
-    start_train = time.time()
-    if global_round == 1:
-        # Primo round: training da zero
-        bst = xgb.train(
-            params,
-            train_dmatrix,
-            num_boost_round=num_local_round,
+class XgbCyclicClient(fl.client.NumPyClient):
+    def __init__(
+        self,
+        client_id: int,
+        local_epochs: int,
+        test_fraction: float,
+        objective: str,
+        max_depth: int,
+        learning_rate: float,
+        subsample: float,
+        colsample_bytree: float,
+    ) -> None:
+        self.client_id = client_id
+        self.local_epochs = local_epochs
+        self.test_fraction = test_fraction
+        self.params = {
+            "objective": objective,
+            "max_depth": max_depth,
+            "learning_rate": learning_rate,
+            "subsample": subsample,
+            "colsample_bytree": colsample_bytree,
+        }
+
+    def get_parameters(self, config):
+        _ = config
+        return []
+
+    def fit(self, parameters, config):
+        start_total = time.time()
+        start_config = time.perf_counter()
+
+        global_round = int(config.get("server-round", 1))
+        local_epochs = int(config.get("local-epochs", self.local_epochs))
+        test_fraction = float(config.get("test-fraction", self.test_fraction))
+        train_method = str(config.get("train-method", "cyclic"))
+
+        params = {
+            "objective": str(config.get("objective", self.params["objective"])),
+            "max_depth": int(config.get("max-depth", self.params["max_depth"])),
+            "learning_rate": float(config.get("learning-rate", self.params["learning_rate"])),
+            "subsample": float(config.get("subsample", self.params["subsample"])),
+            "colsample_bytree": float(config.get("colsample-bytree", self.params["colsample_bytree"])),
+            "nthread": 1,  # limita a 2 thread per client
+        }
+        config_time = time.perf_counter() - start_config
+
+        start_load = time.time()
+        # Risolvi path dati dalla root del progetto (indipendente da dove viene lanciato il client)
+        project_root = Path(__file__).parent.parent.parent
+        data_dir = str(project_root / "data" / "ready_for_flwr")
+
+        start_loader = time.perf_counter()
+        loader = DataLoader(data_dir=data_dir)
+        loader_init_time = time.perf_counter() - start_loader
+
+        start_data_load = time.perf_counter()
+        train_dmatrix, _, num_train, _ = loader.load_client_data(
+            client_id=self.client_id,
+            test_fraction=test_fraction,
         )
-    else:
-        # Round successivi: continua dal modello globale
-        start_deserialize = time.time()
+        data_load_time = time.perf_counter() - start_data_load
+        load_time = time.time() - start_load
+
+        incoming_model_bytes = int(parameters[0].nbytes) if parameters else 0
+        deserialize_time = 0.0
+        run_id = str(config.get("run-id", "legacy"))
+        booster_rounds_before = 0
+        booster_rounds_after = 0
+        local_update_time = 0.0
+        local_slice_time = 0.0
+
+        start_train = time.time()
+        if global_round == 1 or not parameters or parameters[0].size == 0:
+            train_branch = "cold_start_train"
+            bst = xgb.train(params, train_dmatrix, num_boost_round=local_epochs)
+            booster_rounds_after = int(bst.num_boosted_rounds())
+        else:
+            train_branch = "incremental_boost"
+            start_deserialize = time.time()
+            bst = xgb.Booster(params=params)
+            bst.load_model(bytearray(parameters[0].tobytes()))
+            deserialize_time = time.time() - start_deserialize
+
+            booster_rounds_before = int(bst.num_boosted_rounds())
+            bst, local_update_time, local_slice_time = _local_boost(
+                bst, local_epochs, train_dmatrix, train_method
+            )
+            booster_rounds_after = int(bst.num_boosted_rounds())
+        train_time = time.time() - start_train
+
+        start_serialize = time.time()
+        local_model = _serialize_booster_json(bst)
+        model_np = np.frombuffer(local_model, dtype=np.uint8)
+        outgoing_model_bytes = int(model_np.nbytes)
+        serialize_time = time.time() - start_serialize
+
+        dmatrix_rows = int(train_dmatrix.num_row())
+        dmatrix_cols = int(train_dmatrix.num_col())
+
+        total_time = time.time() - start_total
+
+        metrics = {
+            "num-examples": int(num_train),
+            "train_time": float(train_time),
+            "load_time": float(load_time),
+            "deserialize_time": float(deserialize_time),
+            "serialize_time": float(serialize_time),
+            "communication_time_proxy": float(deserialize_time + serialize_time),
+            "bytes_received": int(incoming_model_bytes),
+            "bytes_sent": int(outgoing_model_bytes),
+            "total_time": float(total_time),
+            # Profiling dettagliato per debug colli di bottiglia client-side
+            "profile_training_branch": train_branch,
+            "profile_time_spent_parsing_fit_config_seconds": float(config_time),
+            "profile_time_spent_creating_dataloader_seconds": float(loader_init_time),
+            "profile_time_spent_loading_client_data_seconds": float(data_load_time),
+            "profile_time_spent_updating_booster_seconds": float(local_update_time),
+            "profile_time_spent_slicing_bagging_update_seconds": float(local_slice_time),
+            "profile_booster_rounds_before_local_fit": int(booster_rounds_before),
+            "profile_booster_rounds_after_local_fit": int(booster_rounds_after),
+            "profile_booster_rounds_delta_local_fit": int(booster_rounds_after - booster_rounds_before),
+            "profile_training_dmatrix_num_rows": int(dmatrix_rows),
+            "profile_training_dmatrix_num_columns": int(dmatrix_cols),
+            "profile_requested_local_boosting_rounds": int(local_epochs),
+        }
+
+        append_client_round_metric(
+            approach="flower_cyclic",
+            client_id=self.client_id,
+            round_number=global_round,
+            run_id=run_id,
+            metric_row=metrics,
+        )
+
+        return [model_np], int(num_train), metrics
+
+    def evaluate(self, parameters, config):
+        test_fraction = float(config.get("test-fraction", self.test_fraction))
+        params = {
+            "objective": str(config.get("objective", self.params["objective"])),
+            "max_depth": int(config.get("max-depth", self.params["max_depth"])),
+            "learning_rate": float(config.get("learning-rate", self.params["learning_rate"])),
+        }
+
+        project_root = Path(__file__).parent.parent.parent
+        data_dir = str(project_root / "data" / "ready_for_flwr")
+        loader = DataLoader(data_dir=data_dir)
+        _, valid_dmatrix, _, num_val = loader.load_client_data(
+            client_id=self.client_id,
+            test_fraction=test_fraction,
+        )
+
+        if not parameters or parameters[0].size == 0:
+            return float("inf"), int(num_val), {"mae": float("inf"), "num-examples": int(num_val)}
+
         bst = xgb.Booster(params=params)
-        global_model = bytearray(msg.content["arrays"]["0"].numpy().tobytes())
-        bst.load_model(global_model)
-        deserialize_time = time.time() - start_deserialize
-        bst = _local_boost(bst, num_local_round, train_dmatrix, train_method)
-    train_time = time.time() - start_train
-    
-    # Serializza modello locale
-    start_serialize = time.time()
-    local_model = bst.save_raw("json")
-    model_np = np.frombuffer(local_model, dtype=np.uint8)
-    outgoing_model_bytes = int(model_np.nbytes)
-    serialize_time = time.time() - start_serialize
-    
-    total_time = time.time() - start_total
-    
-    # Prepara risposta
-    model_record = ArrayRecord([model_np])
-    metrics = {
-        "num-examples": num_train,
-        "train_time": train_time,
-        "load_time": load_time,
-        "deserialize_time": deserialize_time,
-        "serialize_time": serialize_time,
-        "communication_time_proxy": deserialize_time + serialize_time,
-        "bytes_received": incoming_model_bytes,
-        "bytes_sent": outgoing_model_bytes,
-        "total_time": total_time
-    }
-    metric_record = MetricRecord(metrics)
-    content = RecordDict({"arrays": model_record, "metrics": metric_record})
+        bst.load_model(bytearray(parameters[0].tobytes()))
 
-    append_client_round_metric(
-        approach="flower_cyclic",
-        client_id=partition_id,
-        round_number=global_round,
-        metric_row=metrics,
+        y_pred = bst.predict(valid_dmatrix)
+        y_true = valid_dmatrix.get_label()
+        mae = float(np.mean(np.abs(y_true - y_pred)))
+
+        return mae, int(num_val), {"mae": mae, "num-examples": int(num_val)}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Avvia client Flower Cyclic PoC (legacy)")
+    parser.add_argument("--server_address", type=str, required=True, help="Es: 127.0.0.1:8080")
+    parser.add_argument("--client_id", type=int, required=True, help="ID numerico client")
+    parser.add_argument("--local_epochs", type=int, default=1, help="Default local epochs")
+    parser.add_argument("--test_fraction", type=float, default=0.2, help="Validation split")
+    parser.add_argument("--objective", type=str, default="reg:squarederror", help="Objective XGBoost")
+    parser.add_argument("--max_depth", type=int, default=6, help="Max depth XGBoost")
+    parser.add_argument("--learning_rate", type=float, default=0.1, help="Learning rate XGBoost")
+    parser.add_argument("--subsample", type=float, default=0.8, help="Subsample XGBoost")
+    parser.add_argument("--colsample_bytree", type=float, default=0.8, help="Colsample bytree XGBoost")
+    args = parser.parse_args()
+
+    client = XgbCyclicClient(
+        client_id=args.client_id,
+        local_epochs=args.local_epochs,
+        test_fraction=args.test_fraction,
+        objective=args.objective,
+        max_depth=args.max_depth,
+        learning_rate=args.learning_rate,
+        subsample=args.subsample,
+        colsample_bytree=args.colsample_bytree,
     )
-    
 
-    return Message(content=content, reply_to=msg)
+    fl.client.start_client(
+        server_address=args.server_address,
+        client=client.to_client(),
+    )
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Avvia un client Flower Cyclic in modalità PoC")
-    parser.add_argument("--server_address", type=str, required=True, help="Indirizzo e porta del server Flower, es: 127.0.0.1:8080")
-    parser.add_argument("--client_id", type=int, required=True, help="ID numerico del client (partendo da 0)")
-    args = parser.parse_args()
-
-    # Flower PoC: avvia il client e si connette al server
-    # Il client_id viene passato tramite node_config
-    start_client(
-        server_address=args.server_address,
-        client=app.to_client(),
-        node_config={"partition-id": args.client_id}
-    )
-
-
-@app.evaluate()
-def evaluate(msg: Message, context: Context) -> Message:
-    """Evaluation locale del client"""
-    
-    partition_id = context.node_config["partition-id"]
-    test_fraction = context.run_config.get("test-fraction", 0.2)
-    
-    # Parametri XGBoost
-    cfg = unflatten_dict(context.run_config)
-    params = {
-        "objective": cfg.get("objective", "reg:squarederror"),
-        "max_depth": cfg.get("max-depth", 6),
-        "learning_rate": cfg.get("learning-rate", 0.1),
-    }
-    
-    # Carica dati validation
-    loader = DataLoader()
-    _, valid_dmatrix, _, num_val = loader.load_client_data(
-        client_id=partition_id,
-        test_fraction=test_fraction
-    )
-    
-    # Carica modello globale
-    bst = xgb.Booster(params=params)
-    global_model = bytearray(msg.content["arrays"]["0"].numpy().tobytes())
-    bst.load_model(global_model)
-    
-    # Predizione e metriche
-    y_pred = bst.predict(valid_dmatrix)
-    y_true = valid_dmatrix.get_label()
-    mae = mean_absolute_error(y_true, y_pred)
-    
-    # Prepara risposta
-    metrics = {
-        "mae": mae,
-        "num-examples": num_val,
-    }
-    metric_record = MetricRecord(metrics)
-    content = RecordDict({"metrics": metric_record})
-    
-    return Message(content=content, reply_to=msg)
+    main()

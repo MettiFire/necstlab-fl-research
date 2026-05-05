@@ -210,19 +210,29 @@ def append_client_round_metric(
     client_id: int,
     round_number: int,
     metric_row: dict,
-    output_dir: str = "./results/structured_metrics",
+    run_id: str,
+    output_dir: str = "./results/structured_metrics/runs",
 ):
     """Append di una metrica round-level per client in formato JSONL.
 
     Scrive una riga per round in un file dedicato al singolo client, evitando
     conflitti di scrittura quando i client sono in parallelo.
+    
+    Il path di default "./results/structured_metrics" viene risolto relativo 
+    alla posizione di questo file (utils.py), non dalla working directory.
     """
-
-    out_dir = Path(output_dir)
+    
+    # Se il path è relativo (non assoluto), risolvilo dalla posizione di utils.py
+    out_path = Path(output_dir)
+    if not out_path.is_absolute():
+        out_path = Path(__file__).parent / output_dir
+    
+    out_dir = out_path / str(run_id)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     payload = {
         "timestamp": pd.Timestamp.now(tz="UTC").isoformat(),
+        "run_id": str(run_id),
         "approach": approach,
         "client_id": int(client_id),
         "round": int(round_number),

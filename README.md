@@ -102,6 +102,28 @@ fl_benchmark/
 
 
 
+
+comando server:
+
+cd ~/fl_benchmark && source venv/bin/activate
+python benchmarks/flower_bagging_poc/server.py \
+  --server_address=0.0.0.0:8082 \
+  --num_rounds=10 \
+  --local_epochs=1 \
+  --min_fit_clients=9 \
+  --min_evaluate_clients=0 \
+  --min_available_clients=9
+
+  comandi client
+
+  cd ~/fl_benchmark && source venv/bin/activate
+for i in $(seq 0 8); do
+  python benchmarks/flower_bagging_poc/client.py --server_address=127.0.0.1:8082 --client_id=$i &
+done
+wait
+
+
+
 ### 3. Run Benchmarks
 ```bash
 # Flower Bagging

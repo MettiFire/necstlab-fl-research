@@ -1,0 +1,21 @@
+Project context
+- Goal: compare Flower Bagging vs Flower Cyclic communication and training costs.
+- Framework: Flower legacy compat API with NumPyClient.
+- Model: XGBoost.
+- Dataset split: 9 clients.
+- Runs target: 10 federated rounds.
+
+What was fixed
+- Server-side tensor serialization was normalized to NumPy .npy uint8 for client compatibility.
+- Client data path handling was stabilized to avoid relative-path failures from subfolders.
+- Structured metrics path handling was stabilized to keep JSONL generation consistent.
+
+How to read outputs
+- communication_round_summary.csv: per-round aggregates.
+- communication_approach_summary.csv: total and mean aggregates by approach.
+- communication_bagging_vs_cyclic_notebook.png: visual comparison of bytes and timing.
+- raw_metrics/*.jsonl: per-client round logs.
+
+Caveats
+- Flower deprecation warnings (start_server/start_client) are expected in this setup.
+- Ensure comparisons are made on runs generated under the same code/config conditions.
