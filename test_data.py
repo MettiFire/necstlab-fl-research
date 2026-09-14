@@ -10,20 +10,20 @@ print("=" * 60)
 
 # Test 1: Verifica esistenza directory
 print("\n1️⃣  Verifica directory dati...")
-data_dir = Path("./data/ready_for_flwr")
+data_dir = Path("./data/ml_ready_final_fed")
 if data_dir.exists():
     print(f"   ✅ Directory trovata: {data_dir}")
 else:
     print(f"   ❌ Directory non trovata: {data_dir}")
     sys.exit(1)
 
-# Test 2: Conta file client
-print("\n2️⃣  Verifica file client...")
-client_files = list(data_dir.glob("client_*.csv"))
-print(f"   ✅ Trovati {len(client_files)} file client")
-for f in sorted(client_files):
-    size_kb = f.stat().st_size / 1024
-    print(f"      - {f.name}: {size_kb:.1f} KB")
+# Test 2: Conta cartelle client e CSV
+print("\n2️⃣  Verifica struttura client...")
+client_dirs = sorted([p for p in data_dir.iterdir() if p.is_dir() and p.name.isdigit()], key=lambda p: int(p.name))
+print(f"   ✅ Trovate {len(client_dirs)} cartelle client")
+for client_dir in client_dirs:
+    csv_files = sorted(client_dir.glob("*.csv"), key=lambda p: int(p.stem) if p.stem.isdigit() else p.stem)
+    print(f"      - Client {client_dir.name}: {len(csv_files)} CSV")
 
 # Test 3: Carica librerie necessarie
 print("\n3️⃣  Carica librerie (può richiedere ~10 sec)...")
@@ -38,19 +38,21 @@ except ImportError as e:
 # Test 4: Carica dati client 0
 print("\n4️⃣  Test caricamento client 0...")
 try:
-    df = pd.read_csv(data_dir / "client_0.csv")
+    client_zero = data_dir / "0"
+    csv_files = sorted(client_zero.glob("*.csv"), key=lambda p: int(p.stem) if p.stem.isdigit() else p.stem)
+    df = pd.concat([pd.read_csv(csv_file) for csv_file in csv_files], ignore_index=True)
     
     print(f"   ✅ Dataset caricato:")
     print(f"      - Forma: {df.shape}")
     print(f"      - Colonne: {df.shape[1]}")
     print(f"      - Righe: {df.shape[0]}")
     
-    # Conta feature numeriche (escludi day, label, time_series)
+    # Conta feature numeriche (escludi metadati)
     feature_cols = [
         col for col in df.columns 
-        if col not in ['day', 'label'] 
+        if col not in ['day', 'label', 'file', 'source_row', 'id', 'client_id'] 
         and not col.endswith('_time_series')
-        and df[col].dtype in ['int64', 'float64']
+        and pd.api.types.is_numeric_dtype(df[col])
     ]
     
     print(f"      - Feature numeriche: {len(feature_cols)}")
@@ -91,19 +93,20 @@ except Exception as e:
 print("\n6️⃣  Verifica caricamento tutti i client...")
 try:
     client_stats = []
-    for i in range(9):
-        df = pd.read_csv(data_dir / f"client_{i}.csv")
+    for client_dir in client_dirs:
+        csv_files = sorted(client_dir.glob("*.csv"), key=lambda p: int(p.stem) if p.stem.isdigit() else p.stem)
+        df = pd.concat([pd.read_csv(csv_file) for csv_file in csv_files], ignore_index=True)
         client_stats.append({
-            'client': i,
+            'client': int(client_dir.name),
             'samples': len(df),
             'features': len(feature_cols)
         })
     
     total_samples = sum(s['samples'] for s in client_stats)
     
-    print(f"   ✅ Tutti i 9 client caricati:")
+    print(f"   ✅ Tutti i client caricati:")
     print(f"      - Totale campioni: {total_samples}")
-    print(f"      - Media per client: {total_samples/9:.1f}")
+    print(f"      - Media per client: {total_samples/len(client_stats):.1f}")
     print(f"\n      Dettaglio:")
     for s in client_stats:
         print(f"        Client {s['client']}: {s['samples']} samples")

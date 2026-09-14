@@ -16,13 +16,8 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from utils import PerformanceMonitor, save_results
 
 
-def run_flower_cyclic_benchmark(config_path: str = None):
+def run_flower_cyclic_benchmark(config_path: str = "../../config.yaml"):
     """Esegue benchmark Flower Cyclic"""
-    
-    # Risolvi il percorso config dalla root del progetto (non relativo alla cwd)
-    if config_path is None:
-        base_dir = Path(__file__).parent.parent.parent  # root del progetto
-        config_path = str(base_dir / "config.yaml")
     
     # Carica configurazione
     with open(config_path, 'r') as f:

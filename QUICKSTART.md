@@ -58,8 +58,8 @@ cd benchmarks/flower_cyclic
 
 ### 2. Test NVIDIA FLARE
 ```bash
-cd benchmarks/nvidia_flare
-# (TODO: configurare NVFLARE)
+cd benchmarks/nvidia_flare_poc
+# PoC NVFlare attivo: usa run_benchmark.py e jobs/xgb_fedavg_poc/
 ```
 
 ### 3. Analisi Comparativa

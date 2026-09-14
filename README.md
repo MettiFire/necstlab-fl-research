@@ -133,7 +133,7 @@ python benchmarks/flower_bagging/run_benchmark.py
 python benchmarks/flower_cyclic/run_benchmark.py
 
 # NVIDIA FLARE
-python benchmarks/nvidia_flare/run_benchmark.py
+python benchmarks/nvidia_flare_poc/run_benchmark.py
 ```
 
 ---

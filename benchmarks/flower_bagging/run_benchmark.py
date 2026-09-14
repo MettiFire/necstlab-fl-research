@@ -1,8 +1,8 @@
 """
-Run Flower Cyclic Benchmark
+Run Flower Bagging Benchmark
 NECSTLab - Polimi LS2
 
-Esegue benchmark completo di Flower Cyclic.
+Esegue benchmark completo di Flower Bagging
 """
 import subprocess
 import time
@@ -16,20 +16,15 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from utils import PerformanceMonitor, save_results
 
 
-def run_flower_cyclic_benchmark(config_path: str = None):
-    """Esegue benchmark Flower Cyclic"""
-    
-    # Risolvi il percorso config dalla root del progetto (non relativo alla cwd)
-    if config_path is None:
-        base_dir = Path(__file__).parent.parent.parent  # root del progetto
-        config_path = str(base_dir / "config.yaml")
+def run_flower_bagging_benchmark(config_path: str = "../../config.yaml"):
+    """Esegue benchmark Flower Bagging"""
     
     # Carica configurazione
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     
     print("=" * 70)
-    print("🔄 FLOWER CYCLIC BENCHMARK")
+    print("🌸 FLOWER BAGGING BENCHMARK")
     print("=" * 70)
     print(f"\nConfigurazione:")
     print(f"  - Num clients: {config['dataset']['num_clients']}")
@@ -44,20 +39,16 @@ def run_flower_cyclic_benchmark(config_path: str = None):
     # Metodo: Usando CLI flwr con pyproject.toml config
     base_dir = Path(__file__).parent.parent.parent  # root del progetto
     
-    # Usa config cyclic dal pyproject.toml
+    # Usa config dal pyproject.toml (più semplice)
     cmd = [
-        "flwr", "run", ".",
-        "--run-config", "train-method=cyclic"
+        "flwr", "run", "."  # . = usa [tool.flwr.app] dal pyproject.toml
     ]
     
-    # Override serverapp e clientapp per cyclic
-    cmd += [
-        "--run-config", "serverapp=benchmarks.flower_cyclic.server:app",
-        "--run-config", "clientapp=benchmarks.flower_cyclic.client:app"
-    ]
+    # Se vuoi override dei parametri:
+    # cmd += ["--run-config", f"num-server-rounds={config['federated']['num_rounds']}"]
     
-    print("🚀 Avvio Flower simulation (Cyclic)...")
-    print(f"Command: flwr run . --run-config train-method=cyclic")
+    print("🚀 Avvio Flower simulation...")
+    print(f"Command: flwr run . (from {base_dir})")
     print()
     
     # Esegui e monitora
@@ -84,15 +75,16 @@ def run_flower_cyclic_benchmark(config_path: str = None):
         # Parse output per estrarre metriche
         output_lines = result.stdout.split('\n')
         
-        # Cerca MAE finale
+        # Cerca MAE finale (da adattare al formato output Flower)
         final_mae = None
         for line in output_lines:
             if 'mae' in line.lower():
+                # Parsing semplice, da migliorare
                 print(f"   {line.strip()}")
         
         # Summary risultati
         results = {
-            'approach': 'flower_cyclic',
+            'approach': 'flower_bagging',
             'total_time_sec': total_time,
             'num_clients': config['dataset']['num_clients'],
             'num_rounds': config['federated']['num_rounds'],
@@ -105,7 +97,7 @@ def run_flower_cyclic_benchmark(config_path: str = None):
         
         # Salva risultati
         results_dir = Path(__file__).parent.parent.parent / "results"
-        save_results(results, str(results_dir), "flower_cyclic")
+        save_results(results, str(results_dir), "flower_bagging")
         
         print(f"\n📊 Risultati salvati in {results_dir}")
         
@@ -121,7 +113,7 @@ def run_flower_cyclic_benchmark(config_path: str = None):
 
 
 if __name__ == "__main__":
-    print("\n🧪 Flower Cyclic Benchmark - NECSTLab\n")
+    print("\n🧪 Flower Bagging Benchmark - NECSTLab\n")
     
     # Verifica setup
     data_dir = Path(__file__).parent.parent.parent / "data" / "ml_ready_final_fed"
@@ -129,10 +121,13 @@ if __name__ == "__main__":
     if not data_dir.exists():
         print("⚠️  ATTENZIONE: Directory dati non trovata!")
         print(f"   Path: {data_dir}")
+        print("\n   Crea symlink con:")
+        print('   cd /Users/annamettifogo/Desktop/polimi/necstlab/progetto\\ LS2/fl_benchmark/data')
+        print('   ln -s /percorso/al/nuovo/dataset/ml_ready_final_fed ml_ready_final_fed')
         sys.exit(1)
     
     # Run benchmark
-    results = run_flower_cyclic_benchmark()
+    results = run_flower_bagging_benchmark()
     
     if results:
         print("\n✅ Benchmark completato con successo!")

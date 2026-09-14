@@ -17,7 +17,7 @@ import time
 
 # aggiungo la root del progetto al path per poter importare `utils`
 # anche quando Flower esegue il client da contesti diversi.
-sys.path.append(str(Path(__file__).parent.parent.parent))
+sys.path.append(str(Path(__file__).resolve().parents[3]))
 
 from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp # classe base per implementare il client

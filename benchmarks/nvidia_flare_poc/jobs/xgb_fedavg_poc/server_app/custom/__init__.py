@@ -1,0 +1,1 @@
+"""Custom NVFlare server package for the PoC."""

@@ -10,7 +10,7 @@ import sys
 import time
 
 # Aggiungi root al path
-sys.path.append(str(Path(__file__).resolve().parents[3]))
+sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
@@ -113,7 +113,7 @@ def train(msg: Message, context: Context) -> Message:
     }
     metric_record = MetricRecord(metrics)
     content = RecordDict({"arrays": model_record, "metrics": metric_record})
-
+    
     return Message(content=content, reply_to=msg)
 
 

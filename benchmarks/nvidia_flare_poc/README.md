@@ -6,6 +6,8 @@ Punti di ingresso:
 - [run_benchmark.py](run_benchmark.py): prepara/avvia/ferma/pulisce il POC
 - [metrics_pipeline.py](metrics_pipeline.py): normalizza metriche NVFlare e crea CSV comparabili con Flower
 
+Nota sulla struttura: il job effettivo e' [jobs/xgb_fedavg_poc](jobs/xgb_fedavg_poc). Dentro quel job, i file usati da NVFlare sono solo `server_app/` e `client_app/`; la vecchia copia `app/` e gli altri residui legacy non fanno parte del flusso attivo.
+
 ## Workflow end-to-end
 
 1) Attiva ambiente e prepara workspace

@@ -1,5 +1,5 @@
 """
-Flower Cyclic Benchmark - Client
+Flower Bagging Benchmark - Client
 NECSTLab - Polimi LS2
 """
 import warnings
@@ -10,7 +10,7 @@ import sys
 import time
 
 # Aggiungi root al path
-sys.path.append(str(Path(__file__).resolve().parents[3]))
+sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
@@ -21,6 +21,7 @@ from utils import DataLoader
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+
 
 app = ClientApp()
 
@@ -51,7 +52,7 @@ def train(msg: Message, context: Context) -> Message:
     # Configurazione
     partition_id = context.node_config["partition-id"]
     num_local_round = context.run_config["local-epochs"]
-    train_method = context.run_config.get("train-method", "cyclic")
+    train_method = context.run_config.get("train-method", "bagging")
     test_fraction = context.run_config.get("test-fraction", 0.2)
     
     # Parametri XGBoost
@@ -113,7 +114,7 @@ def train(msg: Message, context: Context) -> Message:
     }
     metric_record = MetricRecord(metrics)
     content = RecordDict({"arrays": model_record, "metrics": metric_record})
-
+    
     return Message(content=content, reply_to=msg)
 
 

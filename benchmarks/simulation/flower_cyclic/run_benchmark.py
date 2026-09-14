@@ -11,16 +11,34 @@ from pathlib import Path
 import sys
 import pandas as pd
 
-sys.path.append(str(Path(__file__).parent.parent.parent))
+sys.path.append(str(Path(__file__).resolve().parents[3]))
 
 from utils import PerformanceMonitor, save_results
+
+
+def resolve_data_dir() -> Path:
+    """Trova il dataset in una delle posizioni supportate."""
+    base_dir = Path(__file__).resolve().parents[3]
+    candidates = [
+        base_dir / "data" / "ml_ready_final_fed",
+        base_dir / "data" / "ready_for_flwr",
+        Path.home() / "fl_benchmark" / "data" / "ml_ready_final_fed",
+        Path.home() / "fl_benchmark" / "data" / "ready_for_flwr",
+    ]
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    return candidates[0]
 
 
 def run_flower_cyclic_benchmark(config_path: str = "../../config.yaml"):
     """Esegue benchmark Flower Cyclic"""
     
     # Carica configurazione
-    with open(config_path, 'r') as f:
+    config_file = Path(__file__).resolve().parents[3] / "config.yaml"
+    with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
     
     print("=" * 70)
@@ -37,7 +55,7 @@ def run_flower_cyclic_benchmark(config_path: str = "../../config.yaml"):
     monitor = PerformanceMonitor()
     
     # Metodo: Usando CLI flwr con pyproject.toml config
-    base_dir = Path(__file__).parent.parent.parent  # root del progetto
+    base_dir = Path(__file__).resolve().parents[3]  # root del progetto
     
     # Usa config cyclic dal pyproject.toml
     cmd = [
@@ -99,7 +117,7 @@ def run_flower_cyclic_benchmark(config_path: str = "../../config.yaml"):
         results.update(monitor.get_summary())
         
         # Salva risultati
-        results_dir = Path(__file__).parent.parent.parent / "results"
+        results_dir = Path(__file__).resolve().parents[3] / "results"
         save_results(results, str(results_dir), "flower_cyclic")
         
         print(f"\n📊 Risultati salvati in {results_dir}")
@@ -119,11 +137,14 @@ if __name__ == "__main__":
     print("\n🧪 Flower Cyclic Benchmark - NECSTLab\n")
     
     # Verifica setup
-    data_dir = Path(__file__).parent.parent.parent / "data" / "ready_for_flwr"
+    data_dir = resolve_data_dir()
     
     if not data_dir.exists():
         print("⚠️  ATTENZIONE: Directory dati non trovata!")
         print(f"   Path: {data_dir}")
+        print("\n   Crea symlink con:")
+        print('   cd <root_progetto>/data')
+        print('   ln -s /percorso/al/nuovo/dataset/ml_ready_final_fed ml_ready_final_fed')
         sys.exit(1)
     
     # Run benchmark

@@ -2,24 +2,67 @@
 Utility comuni per i benchmark di Federated Learning
 NECSTLab - Polimi LS2
 """
-import pandas as pd
-import numpy as np
-from pathlib import Path
-import xgboost as xgb
-from typing import Tuple, Optional
-import time
-import psutil
-import os
 import json
+import os
+import time
+from pathlib import Path
+from typing import Tuple
+
+import numpy as np
+import pandas as pd
+import psutil
+import xgboost as xgb
 
 
 class DataLoader:
-    """Carica e preprocessa il dataset Garmin per FL"""
+    """Carica e preprocessa i dataset FL del progetto."""
     
-    def __init__(self, data_dir: str = "./data/ready_for_flwr"):
+    def __init__(self, data_dir: str = "./data/ml_ready_final_fed"):
         self.data_dir = Path(data_dir)
         if not self.data_dir.exists():
             raise FileNotFoundError(f"Directory dati non trovata: {self.data_dir}")
+
+    @staticmethod
+    def _read_csv_auto(path: Path) -> pd.DataFrame:
+        """Legge CSV con separatore autodetected per compatibilita' tra dataset."""
+        return pd.read_csv(path, sep=None, engine="python")
+
+    @staticmethod
+    def _numeric_sort_key(path: Path):
+        try:
+            return (0, int(path.stem))
+        except ValueError:
+            return (1, path.stem)
+
+    def _load_client_frame(self, client_id: int) -> pd.DataFrame:
+        """Carica i dati di un client dal layout flat o a cartelle."""
+        client_dir = self.data_dir / str(client_id)
+        if client_dir.is_dir():
+            csv_files = sorted(client_dir.glob("*.csv"), key=self._numeric_sort_key)
+            if not csv_files:
+                raise FileNotFoundError(f"Nessun CSV trovato per il client {client_id}: {client_dir}")
+
+            frames = [self._read_csv_auto(csv_file) for csv_file in csv_files]
+            return pd.concat(frames, ignore_index=True)
+
+        legacy_file = self.data_dir / f"client_{client_id}.csv"
+        if legacy_file.exists():
+            return self._read_csv_auto(legacy_file)
+
+        raise FileNotFoundError(
+            f"Dati client non trovati per {client_id}: cercati {client_dir} e {legacy_file}"
+        )
+
+    @staticmethod
+    def _feature_columns(data: pd.DataFrame) -> list[str]:
+        ignore_cols = {"day", "label", "file", "source_row", "id"}
+        return [
+            col
+            for col in data.columns
+            if col not in ignore_cols
+            and not col.endswith("_time_series")
+            and pd.api.types.is_numeric_dtype(data[col])
+        ]
     
     def load_client_data(
         self, 
@@ -36,26 +79,19 @@ class DataLoader:
         Returns:
             train_dmatrix, valid_dmatrix, num_train, num_val
         """
-        data_file = self.data_dir / f"client_{client_id}.csv"
-        
-        if not data_file.exists():
-            raise FileNotFoundError(f"Client data non trovato: {data_file}")
-        
-        # Carica CSV
-        data = pd.read_csv(data_file)
+        data = self._load_client_frame(client_id)
         
         # Rimuovi colonne vuote
         data = data.dropna(axis=1, how='all')
         
-        # Seleziona feature (escludi day, label, time_series)
-        feature_cols = [
-            col for col in data.columns 
-            if col not in ['day', 'label'] 
-            and not col.endswith('_time_series')
-            and data[col].dtype in ['int64', 'float64']
-        ]
+        # Seleziona feature numeriche, escludendo metadati e time series raw.
+        feature_cols = self._feature_columns(data)
+        if not feature_cols:
+            raise ValueError(f"Nessuna feature numerica trovata per il client {client_id}")
         
         X = data[feature_cols]
+        if 'label' not in data.columns:
+            raise ValueError(f"Colonna 'label' non trovata per il client {client_id}")
         y = data['label']
         
         # Rimuovi righe con NaN
@@ -81,15 +117,10 @@ class DataLoader:
         if not test_path.exists():
             raise FileNotFoundError(f"Test file non trovato: {test_path}")
         
-        data = pd.read_csv(test_path)
+        data = self._read_csv_auto(test_path)
         data = data.dropna(axis=1, how='all')
         
-        feature_cols = [
-            col for col in data.columns 
-            if col not in ['day', 'label'] 
-            and not col.endswith('_time_series')
-            and data[col].dtype in ['int64', 'float64']
-        ]
+        feature_cols = self._feature_columns(data)
         
         X_test = data[feature_cols]
         

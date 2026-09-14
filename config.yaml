@@ -4,7 +4,7 @@
 # Dataset Configuration
 dataset:
   name: "garmin_sleep_quality"
-  path: "./data/ready_for_flwr"
+  path: "./data/ml_ready_final_fed"
   num_clients: 9
   test_fraction: 0.2
   features: 40  # Numero di feature engineered

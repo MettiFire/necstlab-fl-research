@@ -10,7 +10,7 @@ import warnings
 import time
 import json
 
-sys.path.append(str(Path(__file__).parent.parent.parent))
+sys.path.append(str(Path(__file__).resolve().parents[3]))
 
 from flwr.app import ArrayRecord, Context
 from flwr.common.config import unflatten_dict

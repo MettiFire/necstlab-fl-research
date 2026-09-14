@@ -144,14 +144,14 @@ if __name__ == "__main__":
     
     # Controllo preliminare dati: preferisco fallire subito con messaggio chiaro
     # invece di far partire Flower e scoprire dopo che i CSV non esistono.
-    data_dir = Path(__file__).parent.parent.parent / "data" / "ready_for_flwr"
+    data_dir = Path(__file__).parent.parent.parent / "data" / "ml_ready_final_fed"
     
     if not data_dir.exists():
         print("⚠️  ATTENZIONE: Directory dati non trovata!")
         print(f"   Path: {data_dir}")
         print("\n   Crea symlink con:")
         print('   cd /Users/annamettifogo/Desktop/polimi/necstlab/progetto\\ LS2/fl_benchmark/data')
-        print('   ln -s /Users/annamettifogo/Desktop/polimi/1°\\ magistrale/csi/proj4/prova1/dtbagging/ready_for_flwr ready_for_flwr')
+        print('   ln -s /percorso/al/nuovo/dataset/ml_ready_final_fed ml_ready_final_fed')
         sys.exit(1)
     
     # Avvio benchmark completo.

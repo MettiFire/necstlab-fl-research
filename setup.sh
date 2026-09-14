@@ -27,11 +27,11 @@ pip install -e .
 echo ""
 echo "🔗 Setup symlink ai dati Garmin..."
 
-if [ ! -d "data/ready_for_flwr" ]; then
-    ln -s "$DATA_SOURCE/ready_for_flwr" data/ready_for_flwr
-    echo "   ✅ Symlink ready_for_flwr creato"
+if [ ! -d "data/ml_ready_final_fed" ]; then
+    ln -s "$DATA_SOURCE/ml_ready_final_fed" data/ml_ready_final_fed
+    echo "   ✅ Symlink ml_ready_final_fed creato"
 else
-    echo "   ℹ️  Symlink ready_for_flwr già esistente"
+    echo "   ℹ️  Symlink ml_ready_final_fed già esistente"
 fi
 
 if [ ! -f "data/x_test.csv" ]; then

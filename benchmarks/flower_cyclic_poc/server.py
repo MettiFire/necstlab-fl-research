@@ -28,94 +28,96 @@ from flwr.server.strategy import FedXgbCyclic
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
-def _ensure_json_model_bytes(model_bytes: bytes) -> bytes:
-    """Normalizza i bytes modello in JSON UTF-8 per FedXgbCyclic."""
+def _tensor_nbytes(tensor: bytes) -> int:
+    return int(getattr(tensor, "nbytes", len(tensor)))
+
+
+def _append_server_profile(profile_path: Path, payload: dict[str, Any]) -> None:
+    with profile_path.open("a", encoding="utf-8") as f:
+        json.dump(payload, f)
+        f.write("\n")
+
+
+def _ensure_json_model_bytes(bytes_modello: bytes) -> bytes:
+    """Normalizza i bytes del modello in JSON UTF-8 per FedXgbCyclic.
+
+    Riceve payload grezzo (bytes o np.ndarray o .npy) e restituisce
+    bytes JSON validi; mantiene compatibilità cross-versione XGBoost.
+    """
     # Converti a bytes se necessario
-    if isinstance(model_bytes, np.ndarray):
-        model_bytes = model_bytes.tobytes()
-    elif not isinstance(model_bytes, bytes):
-        model_bytes = bytes(model_bytes)
-    
-    # In modalità NumPyClient i tensors arrivano serializzati come .npy
-    # (prefisso tipico: 0x93NUMPY). Li decodifico prima in bytes modello.
-    if model_bytes.startswith(b"\x93NUMPY"):
-        with io.BytesIO(model_bytes) as bio:
-            arr = np.load(bio, allow_pickle=False)
-        if isinstance(arr, np.ndarray):
-            model_bytes = arr.astype(np.uint8, copy=False).tobytes()
+    if isinstance(bytes_modello, np.ndarray):
+        bytes_modello = bytes_modello.tobytes()
+    elif not isinstance(bytes_modello, bytes):
+        bytes_modello = bytes(bytes_modello)
+
+    # Se il payload è uno .npy (NumPyClient), decodifica l'array e ottieni bytes modello
+    if bytes_modello.startswith(b"\x93NUMPY"):
+        with io.BytesIO(bytes_modello) as bio:
+            array = np.load(bio, allow_pickle=False)
+        if isinstance(array, np.ndarray):
+            bytes_modello = array.astype(np.uint8, copy=False).tobytes()
 
     try:
-        json.loads(bytearray(model_bytes))
-        return model_bytes
+        json.loads(bytearray(bytes_modello))
+        return bytes_modello
     except Exception:
         bst = xgb.Booster()
         try:
-            bst.load_model(bytearray(model_bytes))
+            bst.load_model(bytearray(bytes_modello))
         except Exception:
             raise
 
         try:
-            raw = bst.save_raw(raw_format="json")
-            json.loads(bytes(raw).decode("utf-8"))
-            return bytes(raw)
+            raw_bytes = bst.save_raw(raw_format="json")
+            json.loads(bytes(raw_bytes).decode("utf-8"))
+            return bytes(raw_bytes)
         except Exception:
-            tmp_path = None
+            percorso_tmp = None
             try:
                 with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
-                    tmp_path = tmp.name
-                bst.save_model(tmp_path)
-                with open(tmp_path, "rb") as f:
-                    raw = f.read()
-                json.loads(raw.decode("utf-8"))
-                return raw
+                    percorso_tmp = tmp.name
+                bst.save_model(percorso_tmp)
+                with open(percorso_tmp, "rb") as f:
+                    raw_bytes = f.read()
+                json.loads(raw_bytes.decode("utf-8"))
+                return raw_bytes
             finally:
-                if tmp_path and os.path.exists(tmp_path):
-                    os.remove(tmp_path)
+                if percorso_tmp and os.path.exists(percorso_tmp):
+                    os.remove(percorso_tmp)
 
 
-def _ensure_npy_tensor_bytes(model_bytes: bytes) -> bytes:
+def _ensure_npy_tensor_bytes(bytes_modello: bytes) -> bytes:
     """Converte bytes modello in tensor .npy uint8 compatibile NumPyClient."""
-    if isinstance(model_bytes, np.ndarray):
-        model_bytes = model_bytes.tobytes()
-    elif not isinstance(model_bytes, bytes):
-        model_bytes = bytes(model_bytes)
+    if isinstance(bytes_modello, np.ndarray):
+        bytes_modello = bytes_modello.tobytes()
+    elif not isinstance(bytes_modello, bytes):
+        bytes_modello = bytes(bytes_modello)
 
-    if model_bytes.startswith(b"\x93NUMPY"):
-        return model_bytes
+    if bytes_modello.startswith(b"\x93NUMPY"):         
+        return bytes_modello
 
-    arr = np.frombuffer(model_bytes, dtype=np.uint8)
+    array = np.frombuffer(bytes_modello, dtype=np.uint8)
     with io.BytesIO() as bio:
-        np.save(bio, arr, allow_pickle=False)
+        np.save(bio, array, allow_pickle=False)
         return bio.getvalue()
 
 
 class RobustFedXgbCyclic(FedXgbCyclic):
     """FedXgbCyclic con normalizzazione payload modello lato server."""
 
-    def __init__(self, *args, profile_path: Path | None = None, run_id: str | None = None, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.profile_path = profile_path
-        self.run_id = run_id
-
-    def _append_profile(self, payload: dict[str, Any]) -> None:
-        if self.profile_path is None:
-            return
-        self.profile_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.profile_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(payload) + "\n")
 
     def configure_fit(self, server_round, parameters, client_manager):
-        start_total = time.perf_counter()
-        start_super = time.perf_counter()
-        fit_instructions = super().configure_fit(server_round, parameters, client_manager)
-        super_time = time.perf_counter() - start_super
+        # t1: Server invia configurazione ai client (timestamp assoluto)
+        timestamp_t1_send = time.time()
+        print(f"[TIMING_SERVER] R{server_round} t1_send={timestamp_t1_send:.6f} (server invia config)", flush=True)
 
-        selection_time = 0.0
+        fit_instructions = super().configure_fit(server_round, parameters, client_manager)
 
         # Selezione deterministica round-robin: garantisce copertura uniforme
         # dei client nei round (es. 9 round -> 9 client diversi).
         if fit_instructions:
-            start_select = time.perf_counter()
             try:
                 num_available = int(client_manager.num_available())
                 if num_available > 0:
@@ -138,120 +140,94 @@ class RobustFedXgbCyclic(FedXgbCyclic):
             except Exception as exc:
                 # Fallback sicuro: in caso di errore usa la selezione strategy base.
                 print(f"[WARN] Deterministic selection fallback: {type(exc).__name__}: {exc}")
-            finally:
-                selection_time = time.perf_counter() - start_select
 
-        num_tensors = 0
-        input_bytes = 0
+        input_bytes_total = 0
         json_bytes_total = 0
-        npy_bytes = 0
-        json_norm_time = 0.0
-        npy_wrap_time = 0.0
-
+        npy_bytes_total = 0  
         for _, fit_ins in fit_instructions:
             tensors = fit_ins.parameters.tensors
             for idx, tensor in enumerate(tensors):
-                num_tensors += 1
-                input_bytes += len(tensor)
-
-                start_json = time.perf_counter()
+                input_bytes_total += _tensor_nbytes(tensor)
                 json_tensor = _ensure_json_model_bytes(tensor)
-                json_norm_time += time.perf_counter() - start_json
+                json_bytes_total += _tensor_nbytes(json_tensor)
+                npy_tensor = _ensure_npy_tensor_bytes(json_tensor)  
+                npy_bytes_total += _tensor_nbytes(npy_tensor)  
+                tensors[idx] = npy_tensor  
 
-                start_npy = time.perf_counter()
-                npy_tensor = _ensure_npy_tensor_bytes(json_tensor)
-                npy_wrap_time += time.perf_counter() - start_npy
-
-                json_bytes_total += len(json_tensor)
-                npy_bytes += len(npy_tensor)
-                tensors[idx] = npy_tensor
-
-        total_time = time.perf_counter() - start_total
-        payload = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "run_id": self.run_id,
-            "event": "configure_fit",
-            "server_round": int(server_round),
-            "num_clients": int(len(fit_instructions)),
-            "num_tensors": int(num_tensors),
-            "input_bytes_total": int(input_bytes),
-            "json_bytes_total": int(json_bytes_total),
-            "npy_bytes_total": int(npy_bytes),
-            "time_super_s": float(super_time),
-            "time_selection_s": float(selection_time),
-            "time_json_norm_s": float(json_norm_time),
-            "time_npy_wrap_s": float(npy_wrap_time),
-            "time_total_s": float(total_time),
-        }
-        self._append_profile(payload)
-        print(
-            "[PROFILE][cyclic][configure_fit] "
-            f"round={server_round} clients={len(fit_instructions)} tensors={num_tensors} "
-            f"bytes_in={input_bytes} bytes_out={npy_bytes} total_s={total_time:.4f}",
-            flush=True,
+        _append_server_profile(
+            Path(__file__).parent / "results" / "server_round_profile.jsonl",
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "event": "configure_fit",
+                "server_round": int(server_round),
+                "num_clients": len(fit_instructions),
+                "num_tensors": sum(len(fit_ins.parameters.tensors) for _, fit_ins in fit_instructions),
+                "input_bytes_total": int(input_bytes_total),
+                "json_bytes_total": int(json_bytes_total),
+                "npy_bytes_total": int(npy_bytes_total)
+            },
         )
+
         return fit_instructions
 
     def aggregate_fit(self, server_round, results, failures):
-        start_total = time.perf_counter()
+        # t10: Server riceve risultati dai client (timestamp assoluto)
+        timestamp_t10_recv = time.time()
+        print(f"[TIMING_SERVER] R{server_round} t10_recv={timestamp_t10_recv:.6f} (server riceve {len(results)} risultati)", flush=True)
 
-        num_tensors = 0
-        input_bytes = 0
+        input_bytes_total = 0
         json_bytes_total = 0
-        json_norm_time = 0.0
-
         for _, fit_res in results:
             tensors = fit_res.parameters.tensors
             for idx, tensor in enumerate(tensors):
-                num_tensors += 1
-                input_bytes += len(tensor)
-
-                start_json = time.perf_counter()
+                input_bytes_total += _tensor_nbytes(tensor)
                 json_tensor = _ensure_json_model_bytes(tensor)
-                json_norm_time += time.perf_counter() - start_json
-
-                json_bytes_total += len(json_tensor)
+                json_bytes_total += _tensor_nbytes(json_tensor)
                 tensors[idx] = json_tensor
 
-        start_super = time.perf_counter()
         out = super().aggregate_fit(server_round, results, failures)
-        super_time = time.perf_counter() - start_super
-        total_time = time.perf_counter() - start_total
 
-        payload = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "run_id": self.run_id,
-            "event": "aggregate_fit",
-            "server_round": int(server_round),
-            "num_results": int(len(results)),
-            "num_failures": int(len(failures)),
-            "num_tensors": int(num_tensors),
-            "input_bytes_total": int(input_bytes),
-            "json_bytes_total": int(json_bytes_total),
-            "time_json_norm_s": float(json_norm_time),
-            "time_super_s": float(super_time),
-            "time_total_s": float(total_time),
-        }
-        self._append_profile(payload)
-        print(
-            "[PROFILE][cyclic][aggregate_fit] "
-            f"round={server_round} results={len(results)} tensors={num_tensors} "
-            f"bytes_in={input_bytes} bytes_json={json_bytes_total} total_s={total_time:.4f}",
-            flush=True,
+        _append_server_profile(
+            Path(__file__).parent / "results" / "server_round_profile.jsonl",
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "event": "aggregate_fit",
+                "server_round": int(server_round),
+                "num_results": len(results),
+                "num_failures": len(failures) if failures is not None else 0,
+                "num_tensors": sum(len(fit_res.parameters.tensors) for _, fit_res in results),
+                "input_bytes_total": int(input_bytes_total),
+                "json_bytes_total": int(json_bytes_total),
+                # "time_super_s": float(time_super_s),  # COMMENTATO: profiling non serve
+                # "time_total_s": float(time.perf_counter() - start_total),  # COMMENTATO
+            },
         )
         return out
 
+    def configure_evaluate(self, server_round, parameters, client_manager):
+        """Normalizza i tensori di evaluate in .npy uint8 compatibile NumPyClient."""
+        evaluate_instructions = super().configure_evaluate(server_round, parameters, client_manager)
+
+        for _, evaluate_ins in evaluate_instructions:
+            tensors = evaluate_ins.parameters.tensors
+            for idx, tensor in enumerate(tensors):
+                json_tensor = _ensure_json_model_bytes(tensor)
+                npy_tensor = _ensure_npy_tensor_bytes(json_tensor)
+                tensors[idx] = npy_tensor
+
+        return evaluate_instructions
+
 
 def weighted_mae(metrics: list[tuple[int, Metrics]]) -> Metrics:
-    """Aggrega la MAE pesata sul numero di esempi."""
-    total_examples = sum(num_examples for num_examples, _ in metrics)
-    if total_examples == 0:
-        return {"mae": 0.0}
+    """MAE disattivata temporaneamente nel PoC."""
+    _ = metrics
+    return {"mae_disabled": 1.0}
 
-    weighted = 0.0
-    for num_examples, m in metrics:
-        weighted += float(m.get("mae", 0.0)) * num_examples
-    return {"mae": weighted / total_examples}
+
+def _extract_final_mae(history: Any) -> float | None:
+    """MAE disattivata temporaneamente nel PoC."""
+    _ = history
+    return None
 
 
 def main() -> None:
@@ -277,28 +253,11 @@ def main() -> None:
 
     output_dir = Path(__file__).parent / "results"
     output_dir.mkdir(exist_ok=True)
-    profile_path = output_dir / "server_round_profile.jsonl"
-    if profile_path.exists():
-        profile_path.unlink()
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-    print(f"[BOOT] run_id={run_id}", flush=True)
-
-    def append_server_event(event: str, **extra: Any) -> None:
-        payload: dict[str, Any] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "run_id": run_id,
-            "event": event,
-        }
-        payload.update(extra)
-        with profile_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(payload) + "\n")
-
-    append_server_event("boot", server_address=args.server_address, num_rounds=int(args.num_rounds))
+    (output_dir / "server_round_profile.jsonl").write_text("", encoding="utf-8")
 
     def fit_config(server_round: int) -> dict[str, float | int | str]:
         return {
             "server-round": int(server_round),
-            "run-id": run_id,
             "local-epochs": int(args.local_epochs),
             "train-method": "cyclic",
             "test-fraction": float(args.test_fraction),
@@ -329,8 +288,6 @@ def main() -> None:
         on_fit_config_fn=fit_config,
         on_evaluate_config_fn=evaluate_config if evaluate_fraction > 0.0 else None,
         evaluate_metrics_aggregation_fn=weighted_mae,
-        profile_path=profile_path,
-        run_id=run_id,
     )
 
     start_total = time.time()
@@ -340,12 +297,7 @@ def main() -> None:
         strategy=strategy,
     )
     total_time = time.time() - start_total
-
-    append_server_event(
-        "summary",
-        total_time_s=float(total_time),
-        avg_round_time_s=(float(total_time) / int(args.num_rounds)) if int(args.num_rounds) > 0 else None,
-    )
+    final_mae = _extract_final_mae(history)
 
     params = {
         "objective": args.objective,
@@ -367,6 +319,7 @@ def main() -> None:
         "num_rounds": int(args.num_rounds),
         "total_time": total_time,
         "avg_round_time": (total_time / args.num_rounds) if args.num_rounds > 0 else None,
+        "final_mae": final_mae,
         "history_losses_distributed": history.losses_distributed,
         "history_metrics_distributed": history.metrics_distributed,
     }
@@ -375,10 +328,15 @@ def main() -> None:
     with timing_path.open("w", encoding="utf-8") as f:
         json.dump(timing_metrics, f, indent=2)
 
-    print("\n✅ Training completato!")
-    print(f"   ⏱️ Tempo totale: {total_time:.2f}s")
-    if timing_metrics["avg_round_time"] is not None:
-        print(f"   ⏱️ Tempo medio/round: {timing_metrics['avg_round_time']:.2f}s")
+    print("\n" + "=" * 70)
+    print("RIEPILOGO FINALE - CYCLIC POC")
+    print("=" * 70)
+    print(f"⏱️  Tempo totale: {total_time:.2f}s")
+    if args.num_rounds > 0:
+        print(f"⏱️  Tempo medio/round: {total_time / args.num_rounds:.2f}s")
+    print("📉 Final MAE: disattivata")
+    print(f"📄 Timing salvato: {timing_path}")
+
 
 
 if __name__ == "__main__":

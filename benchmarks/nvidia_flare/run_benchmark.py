@@ -15,29 +15,12 @@ import json
 from pathlib import Path
 
 # aggiungo la root del progetto al path per importare utils
-sys.path.append(str(Path(__file__).resolve().parents[3]))
+sys.path.append(str(Path(__file__).parent.parent.parent))
 from utils import DataLoader
 
 from nvflare.app_opt.xgboost.data_loader import XGBDataLoader
 from nvflare.app_opt.xgboost.recipes import XGBHorizontalRecipe
 from nvflare.recipe import SimEnv
-
-
-def resolve_data_dir() -> Path:
-    """Trova il dataset in una delle posizioni supportate."""
-    base_dir = Path(__file__).resolve().parents[3]
-    candidates = [
-        base_dir / "data" / "ml_ready_final_fed",
-        base_dir / "data" / "ready_for_flwr",
-        Path.home() / "fl_benchmark" / "data" / "ml_ready_final_fed",
-        Path.home() / "fl_benchmark" / "data" / "ready_for_flwr",
-    ]
-
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-
-    return candidates[0]
 
 
 class SleepQualityDataLoader(XGBDataLoader):
@@ -90,8 +73,8 @@ class SleepQualityDataLoader(XGBDataLoader):
         
         # Se `data_dir` non è stato fornito, uso il percorso standard nel repo.
         if self._data_dir is None:
-            base_dir = Path(__file__).resolve().parents[3]
-            self._data_dir = str(base_dir / "data" / "ml_ready_final_fed")
+            base_dir = Path(__file__).parent
+                    self._data_dir = str(base_dir.parent.parent / "data" / "ml_ready_final_fed")
         
         self._data_loader = DataLoader(data_dir=self._data_dir)
         
@@ -152,8 +135,8 @@ def main():
     num_rounds = 10
     
     # Path dataset locale (relativo alla root del progetto).
-    base_dir = Path(__file__).resolve().parents[3]
-    data_dir = resolve_data_dir()
+    base_dir = Path(__file__).parent
+    data_dir = base_dir.parent.parent / "data" / "ml_ready_final_fed"
     
     print(f"📦 Configurazione Benchmark:")
     print(f"   • Clients: {num_clients}")

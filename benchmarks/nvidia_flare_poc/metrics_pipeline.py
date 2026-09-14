@@ -144,6 +144,13 @@ def _normalize_row(
             _first_value(raw, ["total_time", "round_time", "elapsed_time"]),
             train_time + communication_time_proxy,
         ),
+
+        "latenza_up_ms": _to_float(_first_value(raw, ["latenza_up_ms", "latency_up_ms"])),
+        "latenza_down_ms": _to_float(_first_value(raw, ["latenza_down_ms", "latency_down_ms"])),
+        # Timestamp fields for additional analysis
+        "server_timestamp_t1": _to_float(_first_value(raw, ["server_timestamp_t1"])),
+        "client_timestamp_t2": _to_float(_first_value(raw, ["client_timestamp_t2"])),
+        "client_timestamp_t9": _to_float(_first_value(raw, ["client_timestamp_t9"])),
     }
 
     return payload
@@ -266,6 +273,10 @@ def summarize_run(run_id: str, approach: str, include_flower_comparison: bool) -
             deserialize_time_mean=("deserialize_time", "mean"),
             train_time_mean=("train_time", "mean"),
             total_time_mean=("total_time", "mean"),
+            latenza_up_ms_mean=("latenza_up_ms", "mean"),
+            latenza_up_ms_max=("latenza_up_ms", "max"),
+            latenza_down_ms_mean=("latenza_down_ms", "mean"),
+            latenza_down_ms_max=("latenza_down_ms", "max"),
         )
         .sort_values("round")
     )
@@ -287,6 +298,10 @@ def summarize_run(run_id: str, approach: str, include_flower_comparison: bool) -
                 "serialize_time_mean": float(df["serialize_time"].mean()),
                 "deserialize_time_mean": float(df["deserialize_time"].mean()),
                 "train_time_mean": float(df["train_time"].mean()),
+                "latenza_up_ms_mean": float(df["latenza_up_ms"].mean()),
+                "latenza_up_ms_max": float(df["latenza_up_ms"].max()),
+                "latenza_down_ms_mean": float(df["latenza_down_ms"].mean()),
+                "latenza_down_ms_max": float(df["latenza_down_ms"].max()),
             }
         ]
     )
