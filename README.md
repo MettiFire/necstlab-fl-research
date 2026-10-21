@@ -1,198 +1,198 @@
 # Federated Learning Benchmark
 
-## Progetto
+## Project
 
-Progetto di ricerca del **NECSTLab - Politecnico di Milano** dedicato allo studio di strategie di **Federated Learning** per la previsione della qualità del sonno a partire da dati biometrici raccolti tramite dispositivi Garmin.
+Research project by **NECSTLab - Politecnico di Milano** dedicated to the study of **Federated Learning** strategies for predicting sleep quality from biometric data collected via Garmin devices.
 
-Il progetto confronta approcci con diversi compromessi tra velocità, accuratezza, comunicazione e complessità del sistema:
+The project compares approaches offering different trade-offs between speed, accuracy, communication, and system complexity:
 
-- **Flower Bagging**: addestramento parallelo dei client e aggregazione dei modelli locali;
-- **Flower Cyclic**: addestramento sequenziale, con il modello che passa da un client al successivo;
-- **NVIDIA FLARE**: aggregazione federata XGBoost basata sulla condivisione di statistiche e istogrammi dei gradienti.
+- **Flower Bagging**: parallel client training and local model aggregation;
+- **Flower Cyclic**: sequential training, with the model moving from one client to the next;
+- **NVIDIA FLARE**: XGBoost federated aggregation based on sharing gradient statistics and histograms.
 
-L'obiettivo generale è individuare un approccio intermedio che riduca l'overhead della comunicazione mantenendo una qualità predittiva vicina a quella ottenibile con un training federato più informativo.
+The overall goal is to identify an intermediate approach that reduces communication overhead while maintaining a predictive quality close to that achievable with more informative federated training.
 
 ---
 
-## Obiettivi della ricerca
+## Research Objectives
 
-### 1. Confrontare le strategie di Federated Learning
+### 1. Compare Federated Learning Strategies
 
-Misurare e confrontare il comportamento dei tre approcci di riferimento mantenendo, per quanto possibile, la stessa configurazione sperimentale:
+Measure and compare the behavior of the three benchmark approaches while maintaining, as much as possible, the same experimental setup:
 
-- stesso dataset federato;
-- stesso modello di regressione basato su XGBoost;
-- stesso numero di client e round federati;
-- stessa suddivisione tra dati di addestramento e validazione.
+- same federated dataset;
+- same XGBoost-based regression model;
+- same number of clients and federated rounds;
+- same split between training and validation data.
 
-Il confronto deve evidenziare non soltanto quale metodo sia più veloce, ma quale offra il miglior compromesso tra qualità del modello e costi operativi.
+The comparison aims to highlight not only which method is faster, but which offers the best compromise between model quality and operational costs.
 
-### 2. Analizzare i colli di bottiglia
+### 2. Analyze Bottlenecks
 
-Separare il costo complessivo del training nelle sue componenti principali:
+Break down the overall training cost into its main components:
 
-- **addestramento locale**, eseguito sui singoli client;
-- **comunicazione**, inclusi trasferimento e serializzazione dei dati o del modello;
-- **aggregazione**, eseguita dal server o dal coordinatore federato;
-- **costruzione degli alberi**, legata al calcolo dei gradienti e alle iterazioni di boosting;
-- **orchestrazione**, cioè configurazione, avvio e sincronizzazione dei client.
+- **local training**, executed on individual clients;
+- **communication**, including data/model transfer and serialization;
+- **aggregation**, performed by the server or federated coordinator;
+- **tree building**, tied to gradient computation and boosting iterations;
+- **orchestration**, i.e., client configuration, launch, and synchronization.
 
-Questa analisi serve a capire se le prestazioni dipendano principalmente dal calcolo locale, dalla rete o dalla logica di coordinamento.
+This analysis helps determine whether performance is primarily driven by local computation, the network, or coordination logic.
 
-### 3. Valutare qualità, efficienza e scalabilità
+### 3. Evaluate Quality, Efficiency, and Scalability
 
-Il benchmark considera le seguenti dimensioni:
+The benchmark considers the following dimensions:
 
-| Dimensione | Domanda di ricerca |
+| Dimension | Research Question |
 |---|---|
-| Accuratezza | Quanto bene il modello prevede la qualità del sonno? |
-| Tempo | Quanto tempo richiede il training federato completo? |
-| Comunicazione | Quanti dati devono essere scambiati tra client e server? |
-| Convergenza | Quanti round sono necessari per raggiungere una qualità target? |
-| Scalabilità | Come cambiano tempi e costi aumentando il numero di client? |
-| Robustezza | Quanto il metodo è stabile in presenza di dati non-IID, ritardi o client assenti? |
+| Accuracy | How well does the model predict sleep quality? |
+| Time | How long does full federated training take? |
+| Communication | How much data must be exchanged between clients and server? |
+| Convergence | How many rounds are required to reach a target quality? |
+| Scalability | How do time and costs change as the number of clients increases? |
+| Robustness | How stable is the method in the presence of non-IID data, delays, or absent clients? |
 
-Le metriche principali sono **MAE**, **RMSE**, tempo totale e tempo per round, byte inviati e ricevuti, tempi di aggregazione e uso delle risorse.
+The primary metrics are **MAE**, **RMSE**, total time and time per round, bytes sent and received, aggregation times, and resource utilization.
 
 ---
 
-## Contesto teorico
+## Theoretical Context
 
 ### Federated Learning
 
-Nel Federated Learning i dati rimangono presso i client che li possiedono. Il coordinatore organizza il training e raccoglie soltanto modelli, aggiornamenti o statistiche aggregate. In questo modo è possibile addestrare un modello comune senza trasferire i dati biometrici grezzi a un server centrale.
+In Federated Learning, data remains with the clients who own it. The coordinator manages the training and collects only models, updates, or aggregate statistics. This allows a shared model to be trained without transferring raw biometric data to a central server.
 
-Il problema è trovare il giusto equilibrio tra:
+The challenge is finding the right balance between:
 
-- quantità di informazione condivisa;
-- accuratezza del modello globale;
-- tempo di calcolo;
-- banda e latenza della comunicazione;
-- tutela dei dati locali.
+- amount of shared information;
+- accuracy of the global model;
+- computation time;
+- communication bandwidth and latency;
+- protection of local data.
 
-La distribuzione dei dati del progetto è federata tra **9 client**. Ogni client contiene dati relativi a gruppi differenti di partecipanti e può quindi introdurre eterogeneità nella distribuzione delle osservazioni.
+The data distribution in this project is federated across **9 clients**. Each client holds data related to different groups of participants and can therefore introduce heterogeneity into the distribution of observations.
 
 ### Flower Bagging
 
-Nel paradigma Bagging i client lavorano in parallelo sui propri dati e inviano al coordinatore i risultati del training locale. L'approccio limita la quantità di informazione scambiata e rende l'esecuzione relativamente semplice e veloce.
+In the Bagging paradigm, clients work in parallel on their local data and send the local training results to the coordinator. This approach limits the amount of information exchanged and makes execution relatively simple and fast.
 
-**Vantaggi teorici:**
+**Theoretical Advantages:**
 
-- parallelismo tra client;
-- comunicazione relativamente contenuta;
-- implementazione e debug semplificati.
+- parallelism among clients;
+- relatively contained communication;
+- simplified implementation and debugging.
 
-**Limiti teorici:**
+**Theoretical Limitations:**
 
-- ogni client vede soltanto una parte dei dati;
-- la media o aggregazione dei modelli può perdere informazione;
-- la qualità può risentire maggiormente della distribuzione non-IID.
+- each client sees only a portion of the data;
+- averaging or aggregating models can lead to information loss;
+- quality can suffer more significantly from non-IID data distribution.
 
 ### Flower Cyclic
 
-Nel paradigma Cyclic il modello viene aggiornato sequenzialmente dai client. Ogni client riceve il modello corrente, esegue il proprio training locale e lo trasferisce al client successivo o al coordinatore.
+In the Cyclic paradigm, the model is updated sequentially by the clients. Each client receives the current model, performs local training, and passes it to the next client or the coordinator.
 
-**Vantaggi teorici:**
+**Theoretical Advantages:**
 
-- il modello può incorporare progressivamente l'informazione dei diversi client;
-- il flusso di aggiornamento è diretto e leggero;
-- il numero di modelli da aggregare può essere ridotto.
+- the model can progressively incorporate information from different clients;
+- the update flow is direct and lightweight;
+- the number of models to aggregate can be reduced.
 
-**Limiti teorici:**
+**Theoretical Limitations:**
 
-- l'esecuzione è meno parallela;
-- il tempo può dipendere dal client più lento;
-- l'ordine dei client può influenzare il risultato finale.
+- execution is less parallel;
+- runtime can depend on the slowest client;
+- client ordering can influence the final result.
 
-### NVIDIA FLARE e aggregazione basata su istogrammi
+### NVIDIA FLARE and Histogram-Based Aggregation
 
-NVIDIA FLARE utilizza un approccio più ricco per il Federated XGBoost. Invece di condividere soltanto il modello finale locale, i client possono condividere statistiche aggregate, come gli istogrammi dei gradienti, utili alla costruzione degli alberi.
+NVIDIA FLARE employs a richer approach for Federated XGBoost. Instead of sharing only the final local model, clients can share aggregate statistics, such as gradient histograms, useful for tree construction.
 
-**Vantaggi teorici:**
+**Theoretical Advantages:**
 
-- maggiore quantità di informazione disponibile per l'aggregazione;
-- comportamento più vicino al training centralizzato;
-- possibilità di ottenere una migliore accuratezza su dati eterogenei;
-- i dati biometrici grezzi non vengono trasferiti.
+- greater amount of information available for aggregation;
+- behavior closer to centralized training;
+- potential for higher accuracy on heterogeneous data;
+- raw biometric data is not transferred.
 
-**Limiti teorici:**
+**Theoretical Limitations:**
 
-- maggiore traffico di rete e numero di operazioni di sincronizzazione;
-- costi più elevati di serializzazione e aggregazione;
-- configurazione e orchestrazione più complesse;
-- possibile aumento dei tempi di avvio e del tempo per round.
-
----
-
-## Dataset e problema predittivo
-
-Il dataset contiene dati biometrici raccolti da **45 partecipanti** che hanno utilizzato un Garmin Vivoactive 5 per circa un mese.
-
-- **999 campioni di training** distribuiti su 9 client;
-- **189 campioni di test**;
-- circa **40 feature numeriche** derivate da serie temporali biometriche;
-- target: **sleep quality score**, espresso su una scala 0-100.
-
-Le feature descrivono, tra gli altri aspetti:
-
-- frequenza cardiaca e variabilità;
-- respirazione durante sonno e veglia;
-- livelli e picchi di stress;
-- attività, passi, calorie e intensità;
-- durata e qualità del sonno precedente.
-
-Il problema è trattato come una regressione con obiettivo XGBoost `reg:squarederror`. La valutazione deve considerare sia la qualità globale sia le differenze di errore tra i singoli client.
+- higher network traffic and more synchronization operations;
+- higher serialization and aggregation costs;
+- more complex configuration and orchestration;
+- potential increase in setup times and time per round.
 
 ---
 
-## Domanda di ricerca
+## Dataset and Predictive Task
 
-> Esiste una strategia federata intermedia capace di mantenere una qualità predittiva vicina a NVIDIA FLARE, riducendo significativamente il tempo di esecuzione e l'overhead di comunicazione?
+The dataset contains biometric data collected from **45 participants** who used a Garmin Vivoactive 5 for approximately one month.
 
-La domanda nasce dal contrasto tra:
+- **999 training samples** distributed across 9 clients;
+- **189 test samples**;
+- approximately **40 numerical features** derived from biometric time series;
+- target: **sleep quality score**, expressed on a 0-100 scale.
 
-- approcci Flower, più semplici e leggeri ma potenzialmente meno informativi;
-- approcci histogram-based, più ricchi dal punto di vista statistico ma più costosi in termini di comunicazione e orchestrazione.
+The features describe, among other aspects:
 
----
+- heart rate and heart rate variability;
+- respiration during sleep and wakefulness;
+- stress levels and peaks;
+- activity, steps, calories, and intensity;
+- duration and quality of previous sleep.
 
-## Approcci ibridi da esplorare
-
-Il progetto considera diverse possibili strategie intermedie:
-
-1. **Selective histogram sharing**: condividere gli istogrammi soltanto per le feature più importanti;
-2. **Adaptive communication**: usare più comunicazione nei primi round e ridurla dopo l'avvicinamento alla convergenza;
-3. **Compressed histograms**: ridurre il numero di bin o quantizzare le statistiche condivise;
-4. **Progressive histogram refinement**: iniziare con istogrammi grossolani e aumentarne progressivamente la precisione;
-5. **Federated knowledge distillation**: addestrare un modello più ricco e trasferirne la conoscenza a modelli locali più leggeri;
-6. **Hybrid parallel-sequential**: combinare gruppi di client addestrati in parallelo e sequenzialmente.
-
-Ogni approccio ibrido deve essere valutato rispetto alle baseline considerando almeno:
-
-- speedup rispetto a NVIDIA FLARE;
-- variazione della MAE;
-- rapporto tra byte comunicati e byte di NVIDIA FLARE;
-- stabilità dei risultati su più esecuzioni;
-- comportamento al variare del numero di client e del grado di eterogeneità dei dati.
+The problem is framed as a regression task using the XGBoost objective `reg:squarederror`. Evaluation must consider both global quality and error discrepancies across individual clients.
 
 ---
 
-## Risultato atteso
+## Research Question
 
-Il risultato finale non è semplicemente individuare il metodo più veloce o quello con la MAE più bassa. L'obiettivo è costruire una valutazione multi-obiettivo che permetta di scegliere la strategia più adatta in base a:
+> Is there an intermediate federated strategy capable of maintaining predictive quality close to NVIDIA FLARE while significantly reducing execution time and communication overhead?
 
-- accuratezza richiesta;
-- tempo massimo disponibile;
-- banda e latenza della rete;
-- numero di client;
-- livello di eterogeneità dei dati;
-- requisiti di privacy e affidabilità.
+This question arises from the contrast between:
 
-Il progetto mira quindi a fornire una base sperimentale per progettare sistemi di Federated Learning efficienti per dati biometrici e scenari distribuiti reali.
+- Flower approaches, which are simpler and lighter but potentially less informative;
+- histogram-based approaches, which are statistically richer but more expensive in terms of communication and orchestration.
 
 ---
 
-## Riferimenti
+## Hybrid Approaches to Explore
+
+The project considers several possible intermediate strategies:
+
+1. **Selective histogram sharing**: sharing histograms only for the most important features;
+2. **Adaptive communication**: using more communication in early rounds and reducing it as convergence approaches;
+3. **Compressed histograms**: reducing the number of bins or quantizing shared statistics;
+4. **Progressive histogram refinement**: starting with coarse histograms and progressively increasing precision;
+5. **Federated knowledge distillation**: training a richer model and distilling its knowledge to lighter local models;
+6. **Hybrid parallel-sequential**: combining groups of clients trained in parallel and sequentially.
+
+Each hybrid approach must be evaluated against the baselines considering at least:
+
+- speedup relative to NVIDIA FLARE;
+- change in MAE;
+- ratio of communicated bytes to NVIDIA FLARE bytes;
+- stability of results across multiple runs;
+- behavior as the number of clients and degree of data heterogeneity vary.
+
+---
+
+## Expected Outcome
+
+The final goal is not simply to identify the fastest method or the one with the lowest MAE. The objective is to build a multi-objective evaluation that allows selecting the most suitable strategy based on:
+
+- required accuracy;
+- maximum available time;
+- network bandwidth and latency;
+- number of clients;
+- level of data heterogeneity;
+- privacy and reliability requirements.
+
+The project aims to provide an experimental foundation for designing efficient Federated Learning systems for biometric data and real-world distributed scenarios.
+
+---
+
+## References
 
 - [Flower Documentation](https://flower.ai/docs/)
 - [NVIDIA FLARE Documentation](https://nvflare.readthedocs.io/)
@@ -200,4 +200,4 @@ Il progetto mira quindi a fornire una base sperimentale per progettare sistemi d
 - [SecureBoost: Histogram-based Federated Learning](https://arxiv.org/abs/1901.08755)
 
 **NECSTLab - Politecnico di Milano**  
-Progetto di ricerca LS2 su Federated Learning
+LS2 Research Project on Federated Learning
