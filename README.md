@@ -1,256 +1,203 @@
-# Federated Learning Benchmark: Bagging vs Cyclic vs NVIDIA FLARE
+# Federated Learning Benchmark
 
-**Progetto:** NECSTLab - Polimi LS2  
-**Obiettivo:** Trovare un approccio intermedio tra velocità (Flower) e accuratezza (NVIDIA FLARE)  
-**Dataset:** Dati biometrici Garmin (sleep quality prediction)
+## Progetto
 
----
+Progetto di ricerca del **NECSTLab - Politecnico di Milano** dedicato allo studio di strategie di **Federated Learning** per la previsione della qualità del sonno a partire da dati biometrici raccolti tramite dispositivi Garmin.
 
-## 🎯 Obiettivi del Benchmark
+Il progetto confronta approcci con diversi compromessi tra velocità, accuratezza, comunicazione e complessità del sistema:
 
-### 1. **Baseline Performance**
-Misurare tempo di esecuzione e accuratezza di:
-- **Flower Bagging** (training parallelo + aggregazione predizioni)
-- **Flower Cyclic** (training sequenziale)
-- **NVIDIA FLARE** (histogram-based federated XGBoost)
+- **Flower Bagging**: addestramento parallelo dei client e aggregazione dei modelli locali;
+- **Flower Cyclic**: addestramento sequenziale, con il modello che passa da un client al successivo;
+- **NVIDIA FLARE**: aggregazione federata XGBoost basata sulla condivisione di statistiche e istogrammi dei gradienti.
 
-### 2. **Analisi Colli di Bottiglia**
-Identificare dove si spende il tempo:
-- ⏱️ **Training locale** (tempo su ogni client)
-- 📡 **Comunicazione** (overhead network, serializzazione)
-- 🔄 **Aggregazione** (operazioni server-side)
-- 🌳 **Tree construction** (gradient computation)
-
-### 3. **Hybrid Approaches**
-Progettare e testare approcci intermedi:
-- Selective histogram sharing (solo feature importanti)
-- Adaptive communication (più istogrammi nei primi round, meno dopo)
-- Compressed histograms (quantizzazione)
-- Mixed strategies (bagging + istogrammi parziali)
+L'obiettivo generale è individuare un approccio intermedio che riduca l'overhead della comunicazione mantenendo una qualità predittiva vicina a quella ottenibile con un training federato più informativo.
 
 ---
 
-## 📊 Metriche da Confrontare
+## Obiettivi della ricerca
 
-| Metrica | Descrizione | Unità |
-|---------|-------------|-------|
-| **Training Time** | Tempo totale per N rounds | secondi |
-| **Communication Overhead** | Bytes scambiati per round | MB/round |
-| **Model Accuracy (MAE)** | Mean Absolute Error su test set | MAE score |
-| **Convergence Speed** | Rounds per raggiungere target MAE | # rounds |
-| **Scalability** | Tempo vs numero di client | sec/client |
+### 1. Confrontare le strategie di Federated Learning
 
----
+Misurare e confrontare il comportamento dei tre approcci di riferimento mantenendo, per quanto possibile, la stessa configurazione sperimentale:
 
-## 🗂️ Struttura del Progetto
+- stesso dataset federato;
+- stesso modello di regressione basato su XGBoost;
+- stesso numero di client e round federati;
+- stessa suddivisione tra dati di addestramento e validazione.
 
-```
-fl_benchmark/
-├── README.md                          # Questo file
-├── requirements.txt                   # Dipendenze Python
-├── config.yaml                        # Configurazione comune
-│
-├── data/                              # Dataset
-│   ├── README.md                      # Info sul dataset
-│   └── [symlink o copia da prova1]
-│
-├── benchmarks/                        # Implementazioni benchmark
-│   ├── flower_bagging/
-│   │   ├── client.py                  # Client Flower bagging
-│   │   ├── server.py                  # Server Flower bagging
-│   │   ├── run_benchmark.py           # Script esecuzione
-│   │   └── results/                   # Output specifici
-│   │
-│   ├── flower_cyclic/
-│   │   ├── client.py                  # Client Flower cyclic
-│   │   ├── server.py                  # Server Flower cyclic
-│   │   ├── run_benchmark.py
-│   │   └── results/
-│   │
-│   └── nvidia_flare/
-│       ├── config/                    # Config FLARE
-│       ├── custom/                    # Custom trainers
-│       ├── run_benchmark.py
-│       └── results/
-│
-├── results/                           # Risultati aggregati
-│   ├── benchmark_summary.csv          # Tabella comparativa
-│   ├── timing_breakdown.csv           # Dettaglio tempi
-│   └── plots/                         # Grafici
-│
-├── analysis/                          # Analisi e visualizzazioni
-│   ├── compare_approaches.ipynb       # Notebook comparazione
-│   ├── bottleneck_analysis.ipynb      # Analisi colli di bottiglia
-│   └── visualization.py               # Utility plotting
-│
-└── hybrid_approaches/                 # Nuovi algoritmi intermedi
-    ├── selective_histogram/           # Idea 1: istogrammi selettivi
-    ├── adaptive_communication/        # Idea 2: comunicazione adattiva
-    ├── compressed_histograms/         # Idea 3: compressione
-    └── mixed_strategy/                # Idea 4: strategia mista
-```
+Il confronto deve evidenziare non soltanto quale metodo sia più veloce, ma quale offra il miglior compromesso tra qualità del modello e costi operativi.
+
+### 2. Analizzare i colli di bottiglia
+
+Separare il costo complessivo del training nelle sue componenti principali:
+
+- **addestramento locale**, eseguito sui singoli client;
+- **comunicazione**, inclusi trasferimento e serializzazione dei dati o del modello;
+- **aggregazione**, eseguita dal server o dal coordinatore federato;
+- **costruzione degli alberi**, legata al calcolo dei gradienti e alle iterazioni di boosting;
+- **orchestrazione**, cioè configurazione, avvio e sincronizzazione dei client.
+
+Questa analisi serve a capire se le prestazioni dipendano principalmente dal calcolo locale, dalla rete o dalla logica di coordinamento.
+
+### 3. Valutare qualità, efficienza e scalabilità
+
+Il benchmark considera le seguenti dimensioni:
+
+| Dimensione | Domanda di ricerca |
+|---|---|
+| Accuratezza | Quanto bene il modello prevede la qualità del sonno? |
+| Tempo | Quanto tempo richiede il training federato completo? |
+| Comunicazione | Quanti dati devono essere scambiati tra client e server? |
+| Convergenza | Quanti round sono necessari per raggiungere una qualità target? |
+| Scalabilità | Come cambiano tempi e costi aumentando il numero di client? |
+| Robustezza | Quanto il metodo è stabile in presenza di dati non-IID, ritardi o client assenti? |
+
+Le metriche principali sono **MAE**, **RMSE**, tempo totale e tempo per round, byte inviati e ricevuti, tempi di aggregazione e uso delle risorse.
 
 ---
 
-## 🚀 Quick Start
+## Contesto teorico
 
-- connetti alla vpn
-- ``` ssh annamettifogo@10.79.6.127 ```
-- pw: necstvmcpu
-- naviga con cd nella cartella fl_benchmark
-- attiva venv con ```source venv/bin/activate```
+### Federated Learning
 
+Nel Federated Learning i dati rimangono presso i client che li possiedono. Il coordinatore organizza il training e raccoglie soltanto modelli, aggiornamenti o statistiche aggregate. In questo modo è possibile addestrare un modello comune senza trasferire i dati biometrici grezzi a un server centrale.
 
+Il problema è trovare il giusto equilibrio tra:
 
+- quantità di informazione condivisa;
+- accuratezza del modello globale;
+- tempo di calcolo;
+- banda e latenza della comunicazione;
+- tutela dei dati locali.
 
-comando server:
+La distribuzione dei dati del progetto è federata tra **9 client**. Ogni client contiene dati relativi a gruppi differenti di partecipanti e può quindi introdurre eterogeneità nella distribuzione delle osservazioni.
 
-cd ~/fl_benchmark && source venv/bin/activate
-python benchmarks/flower_bagging_poc/server.py \
-  --server_address=0.0.0.0:8082 \
-  --num_rounds=10 \
-  --local_epochs=1 \
-  --min_fit_clients=9 \
-  --min_evaluate_clients=0 \
-  --min_available_clients=9
+### Flower Bagging
 
-  comandi client
+Nel paradigma Bagging i client lavorano in parallelo sui propri dati e inviano al coordinatore i risultati del training locale. L'approccio limita la quantità di informazione scambiata e rende l'esecuzione relativamente semplice e veloce.
 
-  cd ~/fl_benchmark && source venv/bin/activate
-for i in $(seq 0 8); do
-  python benchmarks/flower_bagging_poc/client.py --server_address=127.0.0.1:8082 --client_id=$i &
-done
-wait
+**Vantaggi teorici:**
 
+- parallelismo tra client;
+- comunicazione relativamente contenuta;
+- implementazione e debug semplificati.
 
+**Limiti teorici:**
 
-### 3. Run Benchmarks
-```bash
-# Flower Bagging
-python benchmarks/flower_bagging/run_benchmark.py
+- ogni client vede soltanto una parte dei dati;
+- la media o aggregazione dei modelli può perdere informazione;
+- la qualità può risentire maggiormente della distribuzione non-IID.
 
-# Flower Cyclic
-python benchmarks/flower_cyclic/run_benchmark.py
+### Flower Cyclic
 
-# NVIDIA FLARE
-python benchmarks/nvidia_flare_poc/run_benchmark.py
-```
+Nel paradigma Cyclic il modello viene aggiornato sequenzialmente dai client. Ogni client riceve il modello corrente, esegue il proprio training locale e lo trasferisce al client successivo o al coordinatore.
 
----
+**Vantaggi teorici:**
 
-## 🖥️ Accesso alla Macchina del Lab (SSH)
+- il modello può incorporare progressivamente l'informazione dei diversi client;
+- il flusso di aggiornamento è diretto e leggero;
+- il numero di modelli da aggregare può essere ridotto.
 
-Per eseguire i benchmark o avviare server/client sulla macchina del laboratorio:
+**Limiti teorici:**
 
-1. **Connettiti via SSH**
+- l'esecuzione è meno parallela;
+- il tempo può dipendere dal client più lento;
+- l'ordine dei client può influenzare il risultato finale.
 
-```bash
-ssh <tuo_username>@<ip_macchina_lab>
-# oppure, se serve una porta diversa:
-ssh -p <porta> <tuo_username>@<ip_macchina_lab>
-```
+### NVIDIA FLARE e aggregazione basata su istogrammi
 
-2. **Naviga nella cartella del progetto**
+NVIDIA FLARE utilizza un approccio più ricco per il Federated XGBoost. Invece di condividere soltanto il modello finale locale, i client possono condividere statistiche aggregate, come gli istogrammi dei gradienti, utili alla costruzione degli alberi.
 
-```bash
-cd /percorso/alla/cartella/fl_benchmark
-```
+**Vantaggi teorici:**
 
-3. **(Opzionale) Copia file dal tuo PC al lab**
+- maggiore quantità di informazione disponibile per l'aggregazione;
+- comportamento più vicino al training centralizzato;
+- possibilità di ottenere una migliore accuratezza su dati eterogenei;
+- i dati biometrici grezzi non vengono trasferiti.
 
-```bash
-# Da locale a lab:
-scp -r /percorso/locale/fl_benchmark <tuo_username>@<ip_macchina_lab>:/percorso/destinazione/
-# Da lab a locale:
-scp -r <tuo_username>@<ip_macchina_lab>:/percorso/remoto/fl_benchmark /percorso/locale/
-```
+**Limiti teorici:**
 
-4. **Trova l'IP della macchina lab**
-
-```bash
-hostname -I
-# oppure
-ip addr show
-```
-
-5. **Avvia server/client come da istruzioni PoC**
+- maggiore traffico di rete e numero di operazioni di sincronizzazione;
+- costi più elevati di serializzazione e aggregazione;
+- configurazione e orchestrazione più complesse;
+- possibile aumento dei tempi di avvio e del tempo per round.
 
 ---
 
-### 4. Analizza Risultati
-```bash
-jupyter notebook analysis/compare_approaches.ipynb
-```
+## Dataset e problema predittivo
+
+Il dataset contiene dati biometrici raccolti da **45 partecipanti** che hanno utilizzato un Garmin Vivoactive 5 per circa un mese.
+
+- **999 campioni di training** distribuiti su 9 client;
+- **189 campioni di test**;
+- circa **40 feature numeriche** derivate da serie temporali biometriche;
+- target: **sleep quality score**, espresso su una scala 0-100.
+
+Le feature descrivono, tra gli altri aspetti:
+
+- frequenza cardiaca e variabilità;
+- respirazione durante sonno e veglia;
+- livelli e picchi di stress;
+- attività, passi, calorie e intensità;
+- durata e qualità del sonno precedente.
+
+Il problema è trattato come una regressione con obiettivo XGBoost `reg:squarederror`. La valutazione deve considerare sia la qualità globale sia le differenze di errore tra i singoli client.
 
 ---
 
-## 📚 Background Teorico
+## Domanda di ricerca
 
-### **Flower Bagging/Cyclic**
-- Framework leggero per FL
-- Scambia solo **model weights** finali
-- Bagging: training parallelo → media predizioni
-- Cyclic: training sequenziale client-to-client
+> Esiste una strategia federata intermedia capace di mantenere una qualità predittiva vicina a NVIDIA FLARE, riducendo significativamente il tempo di esecuzione e l'overhead di comunicazione?
 
-**Pro:**
-- ⚡ Veloce (comunicazione minima)
-- 🪶 Leggero (no dependencies pesanti)
-- 🔧 Facile da debuggare
+La domanda nasce dal contrasto tra:
 
-**Contro:**
-- 📉 Accuratezza limitata (ogni client vede solo dati locali)
-- 🎲 Sensibile a data heterogeneity
-
-### **NVIDIA FLARE**
-- Enterprise-grade FL framework
-- Scambia **gradient histograms** ad ogni boosting round
-- Approssima training centralizzato
-
-**Pro:**
-- 🎯 Migliore accuratezza (più informazione condivisa)
-- 🔐 Privacy-preserving (istogrammi != dati raw)
-- 🏢 Production-ready
-
-**Contro:**
-- 🐌 Più lento (molto overhead di comunicazione)
-- 💾 Richiede più banda e storage
-- 🧩 Più complesso da configurare
-
-### **L'Opportunità: Hybrid Approach**
-**Domanda di ricerca:** Esiste un punto intermedio ottimale?
-
-Possibili idee:
-1. **Selective histograms:** Solo per top-K feature importanti
-2. **Adaptive frequency:** Più comunicazione all'inizio, meno dopo convergenza
-3. **Compressed histograms:** Quantizzazione o aggregazione bins
-4. **Federated distillation:** Teacher-student con comunicazione pesante/leggera alternata
+- approcci Flower, più semplici e leggeri ma potenzialmente meno informativi;
+- approcci histogram-based, più ricchi dal punto di vista statistico ma più costosi in termini di comunicazione e orchestrazione.
 
 ---
 
-## 📖 References
+## Approcci ibridi da esplorare
+
+Il progetto considera diverse possibili strategie intermedie:
+
+1. **Selective histogram sharing**: condividere gli istogrammi soltanto per le feature più importanti;
+2. **Adaptive communication**: usare più comunicazione nei primi round e ridurla dopo l'avvicinamento alla convergenza;
+3. **Compressed histograms**: ridurre il numero di bin o quantizzare le statistiche condivise;
+4. **Progressive histogram refinement**: iniziare con istogrammi grossolani e aumentarne progressivamente la precisione;
+5. **Federated knowledge distillation**: addestrare un modello più ricco e trasferirne la conoscenza a modelli locali più leggeri;
+6. **Hybrid parallel-sequential**: combinare gruppi di client addestrati in parallelo e sequenzialmente.
+
+Ogni approccio ibrido deve essere valutato rispetto alle baseline considerando almeno:
+
+- speedup rispetto a NVIDIA FLARE;
+- variazione della MAE;
+- rapporto tra byte comunicati e byte di NVIDIA FLARE;
+- stabilità dei risultati su più esecuzioni;
+- comportamento al variare del numero di client e del grado di eterogeneità dei dati.
+
+---
+
+## Risultato atteso
+
+Il risultato finale non è semplicemente individuare il metodo più veloce o quello con la MAE più bassa. L'obiettivo è costruire una valutazione multi-obiettivo che permetta di scegliere la strategia più adatta in base a:
+
+- accuratezza richiesta;
+- tempo massimo disponibile;
+- banda e latenza della rete;
+- numero di client;
+- livello di eterogeneità dei dati;
+- requisiti di privacy e affidabilità.
+
+Il progetto mira quindi a fornire una base sperimentale per progettare sistemi di Federated Learning efficienti per dati biometrici e scenari distribuiti reali.
+
+---
+
+## Riferimenti
 
 - [Flower Documentation](https://flower.ai/docs/)
 - [NVIDIA FLARE Documentation](https://nvflare.readthedocs.io/)
-- [Federated XGBoost Paper](https://arxiv.org/abs/1901.08755)
-- [SecureBoost: Histogram-based FL](https://arxiv.org/abs/1901.08755)
-
----
-
-## 👥 Team
+- [Federated XGBoost](https://arxiv.org/abs/1901.08755)
+- [SecureBoost: Histogram-based Federated Learning](https://arxiv.org/abs/1901.08755)
 
 **NECSTLab - Politecnico di Milano**  
 Progetto di ricerca LS2 su Federated Learning
-
----
-
-## 📝 Next Steps
-
-- [ ] Setup NVIDIA FLARE environment
-- [ ] Implementare baseline Flower bagging
-- [ ] Implementare baseline Flower cyclic
-- [ ] Implementare baseline NVIDIA FLARE
-- [ ] Raccogliere metriche di timing dettagliate
-- [ ] Analizzare communication overhead
-- [ ] Progettare approcci ibridi
-- [ ] Testare e confrontare
-- [ ] Paper/Report finale
